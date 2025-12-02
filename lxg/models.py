@@ -216,6 +216,12 @@ class DNFClassifier:
         # rule format: dimension, interval -> tuple(dimension, tuple(lower_limit, upper_limit))
         self.n_classes = len(rules)
         self.rules = rules
+        #self.rules: List[List[List[Tuple[int, Tuple[float, float]]]]]
+                      #^    ^    ^    Tupble : literals
+                      #|    |    └─ AND for the literals
+                      #|    └───── OR conjunctions
+                      #└────────── Class DNF: list of clauses, one per class
+
         self.purge_dummy_rules()
         self.rule_performances = {c: {} for c in range(self.n_classes)}  # dict to collect performance statistics of rules
         self.tie_break = tie_break
@@ -227,8 +233,8 @@ class DNFClassifier:
         self.score = None
 
 
-    def __call__(self, samples):
-        return self.predict(samples)
+    def __call__(self, samples, explain: bool = False):
+        return self.predict(samples, explain=explain)
 
     def __iter__(self):
         self.current = -1
@@ -613,11 +619,15 @@ class DNFClassifier:
                 raise ValueError
 
         if explain:
-            if isinstance(prediction, int) and prediction == -1:
+            if isinstance(prediction, int) and prediction == -1:   # reject
                 return (-1, None)
 
-            _applicable_terms = [self.rules[prediction][i] for i, a in enumerate(applicable_by_clause[prediction]) if a]
-            prediction = (prediction, _applicable_terms)
+            # collect ALL matching clauses, not just from the predicted class
+            matching_clauses = [((class_idx, clause_idx), self.rules[class_idx][clause_idx])
+                                for class_idx, clauses_active in enumerate(applicable_by_clause)
+                                for clause_idx, active in enumerate(clauses_active) if active]
+
+            return (prediction, matching_clauses)
 
         return prediction
 
