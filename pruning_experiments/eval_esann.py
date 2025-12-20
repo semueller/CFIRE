@@ -20,7 +20,7 @@ tasks = [
 
 pfx_exp = './results'
 pfx_plts = './plots'
-pfx_tbls = './tables'
+pfx_tbls = './tables/'
 
 
 # ============================================================================
