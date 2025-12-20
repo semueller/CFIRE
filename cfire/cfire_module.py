@@ -1,3 +1,4 @@
+import logging
 from copy import deepcopy
 
 import numpy as np
@@ -13,19 +14,21 @@ from lxg.models import DNFClassifier
 from cfire.gely import gely_discriminatory, ItemsetNode
 from cfire.nodeselection import _comp_greedy_cover
 
+from typing import NamedTuple
+class ItemsetNodeCollection(NamedTuple):
+    """ holds a list of `ItemsetNodes` and their corresponding support set """
+    class_support: list[set[int]]
+    nodes: list[ItemsetNode]
+
 class CFIRE:
 
     def __init__(self,
                  localexplainer_fn,
                  inference_fn,
                  expl_binarization_fn=None,
-                 prune_policy="safe",        # "safe", "aggressive", or None
-                 prune_max_rel_loss=0.05,    # only used for aggressive mode
                  frequency_threshold=0.01,
+                 explanations=None,
                  meta_data=None, ):
-        # MISSING:
-        # - behavior of grid search during rule fitting (min/max_depth),
-        # - inference strategy for DNF
 
         # Callables
         self._localexplainer_fn = localexplainer_fn
@@ -34,7 +37,12 @@ class CFIRE:
         self._composition_strategy = _comp_greedy_cover
 
         # Data fields
-        self._explanations = None
+        self._explanations = explanations
+        if self._explanations is not None:
+            if localexplainer_fn is not None:
+                logging.warning("localexplainer_fn passed although pre-calculated explanations are used")
+            if localexplainer_fn is not None:
+                logging.warning("inference_fn passed although pre-calculated explanations are used")
         self._binarized_explanations = None
         self._data = None
         self._labels = None
@@ -44,10 +52,6 @@ class CFIRE:
 
         # Hyperparameters
         self._frequency_threshold = frequency_threshold
-
-        self._prune_policy = prune_policy
-        self._prune_max_rel_loss = prune_max_rel_loss
-        self._best_prune_threshold = None
 
         self._is_fit = False
         self._compute_times = {}
@@ -133,56 +137,6 @@ class CFIRE:
             return DNFClassifier(rules, 'accuracy')
 
 
-
-    def _safe_prune(self):
-        """Remove only rules that never 'win' on any sample in self._data."""
-        rm = compute_rule_metrics(self, self._data)
-        decision = decide_by_wins(rm, win_threshold=0)
-
-        if not decision.to_remove:
-            return  # nothing to do
-
-        original_dnf = self.dnf
-        pruned_rules = prune_rules(original_dnf.rules, decision.to_remove)
-        pruned_dnf = DNFClassifier(pruned_rules, original_dnf.tie_break)
-        pruned_dnf.compute_rule_performance(self._data, self._labels)
-
-        # Optional sanity check: predictions unchanged on training/val data
-        # (requires sklearn)
-        # orig_pred = original_dnf.predict(self._data)
-        # pruned_pred = pruned_dnf.predict(self._data)
-        # assert np.array_equal(orig_pred, pruned_pred)
-
-        self.dnf = pruned_dnf
-
-    def _aggressive_prune(self):
-        """Optional: embed your threshold sweep from experiment.py here if you want."""
-        rm = compute_rule_metrics(self, self._data)
-        original_dnf = self.dnf
-        original_acc = accuracy_score(
-            original_dnf.predict(self._data), self._labels
-        )
-
-        best_dnf = original_dnf
-        best_threshold = 0
-
-        for win_threshold in range(0, 100):
-            decision = decide_by_wins(rm, win_threshold)
-            pruned_rules = prune_rules(original_dnf.rules, decision.to_remove)
-            cand_dnf = DNFClassifier(pruned_rules, original_dnf.tie_break)
-            cand_dnf.compute_rule_performance(self._data, self._labels)
-            cand_acc = accuracy_score(cand_dnf.predict(self._data), self._labels)
-
-            if original_acc > 0.0 and (original_acc - cand_acc) / original_acc < self._prune_max_rel_loss:
-                best_dnf = cand_dnf
-                best_threshold = win_threshold
-            else:
-                break
-
-        self.dnf = best_dnf
-        self._best_prune_threshold = best_threshold
-
-
     def fit(self, X=None, Y=None, save_interim=False):
         if self._is_fit:
             raise Exception('CFIRE is already fit')
@@ -205,15 +159,6 @@ class CFIRE:
         self._compose_rule_model()
         if self._verbose:
             print(f"took {self._compute_times['_compose_rule_model']:.4f}s")
-
-        if self._prune_policy == "safe":
-            if self._verbose:
-                print("CFIRE: Safe pruning")
-            self._safe_prune()
-        elif self._prune_policy == "aggressive":
-            if self._verbose:
-                print("CFIRE: Aggressive pruning")
-            self._aggressive_prune()
 
         return
 

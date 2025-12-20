@@ -1456,6 +1456,7 @@ if __name__ == '__main__':
                    verbose=False):
         print(device)
         model.to(device)
+
         models = []
         losses = [0.]
         batchnum = 0

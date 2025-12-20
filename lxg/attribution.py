@@ -289,7 +289,8 @@ def smooth_grad(model, data, targets=None, inference_fn=None, std=1., n_samples=
 
 def integrated_gradients(model, data, targets=None, inference_fn=None, baselines=None, n_samples=100, simplified=False,
                          calc_paths=None, calc_baselines=None, fit_baseline_data=False, device=None, outputmode=None,
-                         pre_process_fn=None, return_convergence_delta=False, _batch_size=256):
+                         pre_process_fn=None, return_convergence_delta=False, _batch_size=256,
+                         subtract_baseline=False):
     """
     :param model: Classifier model
     :param data: input data, batch first
@@ -423,6 +424,9 @@ def integrated_gradients(model, data, targets=None, inference_fn=None, baselines
         # print(torch.sum(torch.le(_delta_percent, 0.05)))
         # assert torch.all(torch.le( _delta_percent, 0.05))  # check if percentage of difference is less than 5% for all samples
 
+    if subtract_baseline:
+        attribution = attribution * (data - baselines)
+
     if outputmode == 'full':
         if targets_was_none:
             return attribution, paths, scaling, _numerical_delta, targets
@@ -438,6 +442,7 @@ def integrated_gradients(model, data, targets=None, inference_fn=None, baselines
         return attribution, targets
 
     return attribution
+
 
 
 def left_integrated_gradients(model, data, targets=None, inference_fn=None, baselines=None, steps=150, simplified=False,
