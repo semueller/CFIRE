@@ -1,13 +1,18 @@
-Had no time to test from a clean install before submission:
+CFIRE Pruning experiments
 
-0. File to set up conda environment:`cfire_requirements`
-1. Train neural networks: `run_small.sh` # some datasets may have to be downloaded manually
-	Trains 50 neural networks per task, network architectures are defined in script
-2. Calculcate explanations: `calc_expls.sh`
-	calculates KS, IG and LI explanations for all models
-3. Calculate Rules for all methods: `cfire_experiments/calc_expl_rules.sh`
-	Calculation for Anchors will take some time
-4. Evaluate: `cfire_experiments/run_full_eval.sh`
-	Evaluation of CEGA takes a long time
-5. Print LaTeX Tables: `python cfire_experiments/plot_rule_results.py`
-	Also produces plots
+`cfire_requirements` contains conda requirements;
+`requirements.txt` contains pip requirements
+
+Executing the following produces the results, figures and tables for submission.
+```shell
+cd pruning_experiments
+python experiments_pruning.py 
+python eval_esann.py
+```
+
+Independent from the experiments, `pruning_experiments/standalone_example.py` contains an example where 
+- a black box is trained, 
+- a CFIRE model is computed using integrated_gradients and
+- threshold_pruning is applied with a visualization of Test-Accuracy, Ambiguity and Size for various pruning thresholds
+
+(Note that some datasets may need to be sourced manually)
