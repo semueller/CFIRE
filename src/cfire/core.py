@@ -1,20 +1,17 @@
 import logging
 import pickle
-from argparse import ArgumentError
-from copy import deepcopy
 import gzip
 from pathlib import Path
 
 import numpy
 import numpy as np
-import torch
 
 import time
 
-from lxg.models import DNFClassifier
+from .rules import DNFClassifier
 
-from cfire.gely import gely_discriminatory, ItemsetNode
-from cfire.nodeselection import _comp_greedy_cover
+from .mining import gely_discriminatory, ItemsetNode
+from .cover import _comp_greedy_cover
 
 from typing import NamedTuple, Optional
 
@@ -92,9 +89,10 @@ class CFIRE:
         if self._explanations is None:
             self._explanations = self._localexplainer_fn(self._inference_fn, self._data, self._labels)
 
-            # cast it to numpy before further processing, as it can crash future functions otherwise
-            if isinstance(self._explanations, torch.Tensor):
-                self._explanations = self._explanations.cpu().numpy()
+            # cast to numpy before further processing (e.g. torch tensors), as it can crash future functions otherwise
+            if hasattr(self._explanations, "detach"):
+                self._explanations = self._explanations.detach().cpu().numpy()
+            self._explanations = np.asarray(self._explanations)
 
         self._compute_times['_calc_explanations'] = time.time() - time_expl
 

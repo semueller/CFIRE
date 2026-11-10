@@ -1,21 +1,31 @@
 from __future__ import annotations # python 3.10 +
+
+
 import numpy as np
-from functools import reduce
-from itertools import chain
+
+
+
+
+
+
 from copy import deepcopy
 
 
+import sys
 
-import sys, warnings
 
-from lxg.models import DNFClassifier
+from .rules import DNFClassifier
+
 
 from sklearn.tree import DecisionTreeClassifier as DT
-from sklearn.model_selection import GridSearchCV, ParameterGrid
+
+
+from sklearn.model_selection import GridSearchCV
+
 
 from collections import OrderedDict
 
-from collections import OrderedDict
+
 
 
 class OrderedSet:
@@ -166,6 +176,7 @@ class OrderedSet:
         if order_matters and isinstance(other, OrderedSet):
             return list(self) == list(other)
         return self == other
+
 
 class ItemsetNode():
     def __init__(self, parent : ItemsetNode | None =None, itemset=None, compute_rules=None, rel_items_global: OrderedSet=None, n_samples_global: int =None):
@@ -567,6 +578,7 @@ class ItemsetNode():
         self._dnfs.append(new_dnf)
         self.compute_complexity_factor()
 
+
 class recursionlimit:
     def __init__(self, limit):
         self.limit = limit
@@ -577,6 +589,7 @@ class recursionlimit:
 
     def __exit__(self, type, value, tb):
         sys.setrecursionlimit(self.old_limit)
+
 
 def _is_frequent(pattern, D, threshold):
     support_idxs = []
@@ -615,111 +628,6 @@ def _ti(Y, D) -> OrderedSet:
         return OrderedSet()
     iids = [D[tid] for tid in Y]
     return OrderedSet.intersection(*iids)
-
-def get_default_closure(Database):
-    return lambda X: _ti(_it(X, Database), Database)
-
-## frequency check and closure operator using binary matrix instead of sets and list
-
-def _ti_binary_matrix(Y, B) -> set:
-    iids = B[list(Y), :]
-    intersected = reduce(lambda a,b: np.bitwise_and(a, b), list(iids))
-    intersected = np.argwhere(intersected).squeeze()
-    if len(intersected.shape) == 0:
-        intersected = np.expand_dims(intersected, 0)
-    intersected = list(intersected)
-    return set(intersected)
-
-def _it_binary_matrix(X, B) -> set:
-    tids = [set(list(np.argwhere(B[:, x]).squeeze(1))) for x in X]
-    return set.intersection(*tids)
-
-
-def _is_frequent_binary(itemset, B, threshold):
-    if len(itemset) == 0:
-        return False, 0
-    _itemset_binary = np.zeros(B.shape[1], dtype=int)
-    _itemset_binary[list(itemset)] = 1
-    match = B @ _itemset_binary
-    match = match == len(itemset)
-    n_occurences = np.sum(match)
-    is_frequent = n_occurences >= threshold
-    return is_frequent, n_occurences
-
-
-def _check_applicable_any(rule: list[int, tuple[float, float]], data: np.ndarray) -> bool:
-    for x in data:
-        applicable = True
-        for (d, (mi, ma)) in rule:  # for term in DNF rule
-            if not (mi < x[d] <= ma):
-                applicable = False
-        if applicable:
-            return True
-    return False  # rule applies to no datapoint
-
-
-def is_clean(dims, X, Y, target_label) -> bool:
-    _dims = None
-    n_dims = X.shape[1]
-    if np.any(dims > n_dims): # multiple models/ explanations used, hence dims can appear multiple times
-        _dims = [d%n_dims for d in dims]
-    else:
-        _dims = dims
-    _dims = np.array(_dims)
-    selected_data = X[Y==target_label, _dims]
-
-    _data_rule = [(d, (mi-1e-15, ma)) for d, mi, ma in zip( _dims,
-        np.min(selected_data, 0), np.max(selected_data, 0)
-    )]
-    # return True if rule applies to no datapoint from another class
-    return not _check_applicable_any(_data_rule, X[Y != target_label])
-
-
-def find_max_pos_and_min_neg(t, o, d):
-    raise NotImplementedError
-    # TODO: if t or o contains no positive/ negative values in any of d then min/max will be None -> that's not right,
-    #   we need to filter differently
-    """
-    For each dimension in d, find the maximal positive value in x_synth_target[:, dim]
-    that is still lower than the minimal positive value in x_synth_other[:, dim].
-    Similarly, repeat for negative values.
-
-    Parameters:
-    x_synth_target (np.ndarray): The subset of perturbed samples where labels are True.
-    x_synth_other (np.ndarray): The subset of perturbed samples where labels are False.
-    d (list or np.ndarray): A set of dimensions to check.
-
-    Returns:
-    lists[tuples]: two lists of tuples containing the maximal positive and minimal negative values for each dimension, list 1 for taget t, list 2 for other o
-    """
-    results = {}
-    # _target_samples, _other_samples
-    _ts, _os = [], []
-    for dim in d:
-        # Get positive and negative values from target and other
-        target_positive = t[:, dim][t[:, dim] > 0]
-        target_negative = t[:, dim][t[:, dim] <= 0]
-        other_positive = o[:, dim][o[:, dim] > 0]
-        other_negative = o[:, dim][o[:, dim] <= 0]
-
-        # Find max positive in target that's lower than min positive in other
-        if len(target_positive) > 0 and len(other_positive) > 0:
-            max_pos_target = np.max(target_positive[target_positive < np.min(other_positive)])
-            min_pos_other = np.min(other_positive)
-        else:
-            max_pos_target, min_pos_other = None, None  # No valid comparison
-
-        # Find min negative in target that's greater than max negative in other
-        if len(target_negative) > 0 and len(other_negative) > 0:
-            min_neg_target = np.max(target_negative[target_negative > np.max(other_negative)])
-            max_neg_other = np.max(other_negative)
-        else:
-            min_neg_target, max_neg_other = None, None  # No valid comparison
-
-        _ts.append((min_neg_target, max_pos_target))
-        _os.append((max_neg_other, min_pos_other))
-
-    return _ts, _os
 
 
 def generate_perturbations(x, d, n, low_val, high_val):
@@ -838,6 +746,7 @@ def generate_synthetic_data(_target, _other, callable, dims):
         _synth_other = np.vstack(_synth_other)
     return _synth_target, _synth_other
 
+
 def list_closed_no_rules(C, N, i, t, D, I, T, results, closure=None, parent: ItemsetNode=None,
                          subset_test=False, direction=None, model_callable=None):
     if parent is None:
@@ -897,6 +806,7 @@ def list_closed_no_rules(C, N, i, t, D, I, T, results, closure=None, parent: Ite
                                  subset_test=subset_test)
 
     return
+
 
 def list_closed_dscriminatory(C, N, i, t, D, I, T, results,
                               data_target, data_other, closure=None, parent: ItemsetNode=None,
@@ -1165,162 +1075,3 @@ def gely_discriminatory(B, threshold, X_target, X_other, item_order, remove_copm
     return (support_idxs_frequent_nodes, gely_nodes)
 
 
-def list_closed(C, N, i, t,
-                  D, I, T, results, closure=None, D_binary=None, class_item_ids=None):
-    raise NotImplementedError
-    if closure is None:
-        closure = lambda X: _ti(_it(X, T, D), I, D)
-
-    idx = np.argwhere(I == i).squeeze()  # {k in I\C : k >= i}
-    X = I[idx:]
-    X = set(X) - C
-
-    if len(X) > 0:
-        _i_prime = min(X)
-        _C_prime: set = closure(C.union({_i_prime}))
-
-        if D_binary is not None:
-            is_frequent, count = _is_frequent_binary(_C_prime, D_binary, t)
-        else:
-            is_frequent, count, _ = _is_frequent(_C_prime, D, t)
-
-        if is_frequent and len(_C_prime.intersection(N)) == 0:  # and check_class_variable(_C_prime, class_item_ids):
-            # print(sorted(_C_prime), count)
-            results.append((_C_prime, count))
-            idx = np.argwhere(I == _i_prime).squeeze()
-            if idx >= len(I)-1:  # we reached item with highest ordinal
-                return
-            _next_i = I[idx + 1]  # _i_prime + 1  # leads to Index Out Of Range Error on I
-            list_closed(_C_prime, N, _next_i,  # What if min(X) == max(I)?
-                        t, D, I, T, results, closure, D_binary, class_item_ids)
-
-        idx = np.argwhere(I == _i_prime).squeeze()+1  # {k in I\C: k > _i_prime}
-        Y = I[idx:]  # no out of bounds, just empty
-        Y = set(Y) - C
-        if len(Y) > 0:
-            _i_prime_prime = min(Y)
-            list_closed(C, N.union({_i_prime}), _i_prime_prime, t,
-                        D, I, T, results, closure, D_binary, class_item_ids)
-
-    return
-
-
-def gely(B, threshold, use_binary=False, remove_copmlete_transactions=True, targets=None, verbose=True):
-    '''
-
-    :param D: Is a binary matrix;
-              Columns = Items, index used as ordering
-              Tows = Transactions, index used as tid
-    :param threshold: frequency threshold used to determine if an itemset is considered frequent
-    :return:
-    '''
-
-    if 0 < threshold < 1:
-        threshold = int(B.shape[0] * threshold)
-        # print(f'threshold set to {threshold}')
-
-    n_full_transactions = None
-    if remove_copmlete_transactions:
-        n_I = B.shape[1]
-        _T_sizes = np.sum(B, 1)
-        unfull_transactions = _T_sizes < n_I
-        D = B[unfull_transactions]
-        n_full_transactions = np.sum(-1*(unfull_transactions-1))
-        # print(f"removed {n_full_transactions} transactions that contained all items")
-        if threshold < 1:
-            threshold = max(int((B.shape[1] - n_full_transactions) * threshold), 1)
-        else:
-            threshold = threshold - n_full_transactions
-            if threshold <= 0:
-                threshold = 1
-            # print(f"adapted threshold to {threshold+n_full_transactions} - {n_full_transactions} = {threshold}")
-    else:
-        D = B
-
-    _size_T, _size_I = D.shape
-    T, I = np.arange(_size_T), np.arange(_size_I)
-    #  remove items that never occur in any transaction in D (ie, filter zero columns)
-    _non_zero_cols = np.argwhere(np.sum(D, 0) > 0).squeeze()
-    I = I[_non_zero_cols]
-    _t = threshold
-
-    class_item_ids = None
-    if targets is not None:
-        n_classes = len(np.unique(targets))
-        _targets_binarized = np.zeros([B.shape[0], n_classes])
-        _targets_binarized[:, targets] = 1
-        D = np.hstack([D, _targets_binarized])
-        class_item_ids = set(np.arange(D.shape[1] - n_classes, D.shape[1]))
-    # transform binary rows into transactions represented by lists of items (as indices)
-    _D = []
-    for _i, t in enumerate(D):
-        t_iids = np.argwhere(t).squeeze()
-        if len(t_iids.shape) == 0:
-            t_iids = np.expand_dims(t_iids, 0)
-        _D.append(list(t_iids))
-    _D = [set(d) for d in _D]
-
-    if use_binary:
-        D = D.astype(int)
-        closure = lambda X: _ti_binary_matrix(_it_binary_matrix(X, D), D)  # D not _D !
-    else:
-        closure = lambda X: _ti(_it(X, _D), _D)
-
-    _fcis = []
-    import numbers
-    if isinstance(I, numbers.Number):
-        I = [I]
-    try:
-        list_closed(
-            C=set(), N=set(), i=min(I), t=_t, D=_D, I=I, T=T,
-            results=_fcis, closure=closure, D_binary=D if use_binary else None,
-            class_item_ids=class_item_ids
-        )
-    except RecursionError as e:
-        if hasattr(e, 'message'):
-            if "recursion depth exceeded" in e.message:
-                old_rlimit = sys.getrecursionlimit()
-                new_rlimit = int(old_rlimit * 1.5)
-                print(f"raising recursion limit from {old_rlimit} to {new_rlimit}")
-                del _fcis
-                _fcis = []
-                with recursionlimit(new_rlimit):
-                    list_closed(
-                        C=set(), N=set(), i=min(I), t=_t, D=_D, I=I, T=T,
-                        results=_fcis, closure=closure, D_binary=D if use_binary else None,
-                        class_item_ids=class_item_ids
-                    )
-
-
-    # return list sorted by (largest itemsets, larger support)
-    _fcis = sorted(_fcis, key=lambda x: (-x[1], len(x[0])), reverse=True)
-    if n_full_transactions is not None:
-        _fcis = [(f[0], f[1]+n_full_transactions) for f in _fcis]
-    return _fcis
-
-if __name__ == '__main__':
-    D = ['abde', 'bce', 'abde', 'abce', 'abcde', 'bcd']
-    support_thresh = 3
-    I = ['a', 'b', 'c', 'd', 'e']
-    _I = {k: v for v, k in enumerate(I)}
-
-    T = np.arange(len(D))
-    B = np.zeros((len(T), len(I)))
-    for tid, t in zip(T, D):
-        for _iid, i in enumerate(I):
-            B[tid, _iid] = 1 if i in t else 0
-
-    assert np.all(B ==
-                  np.array([
-                            [1, 1, 0, 1, 1],
-                            [0, 1, 1, 0, 1],
-                            [1, 1, 0, 1, 1],
-                            [1, 1, 1, 0, 1],
-                            [1, 1, 1, 1, 1],
-                            [0, 1, 1, 1, 0]
-                        ])
-                  )
-
-    fcis = gely(B, support_thresh)
-    for f, c in fcis:
-        print(f"{[I[i] for i in f]} x {c}")

@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Sequence, Set, TypeAlias, Tuple
 
-from cfire.pruning_metrics import RuleKey, RuleMetrics
+from .pruning_metrics import RuleKey, RuleMetrics
 
 Literal:    TypeAlias = Tuple[int, Tuple[float, float]]     # (dimension, (low, high)) interval test
 Clause:     TypeAlias = list[Literal]                       # Conjunction (AND) of literals

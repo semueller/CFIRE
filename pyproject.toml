@@ -1,0 +1,21 @@
+[project]
+name = "cfire"
+version = "0.1.0.dev0"
+description = "CFIRE: combine local explanations into a global rule model of a black box"
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [{ name = "Sebastian R. Müller" }]
+dependencies = [
+    "numpy>=1.24",
+    "scikit-learn>=1.3",
+]
+
+[dependency-groups]
+dev = ["pytest>=8"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/cfire"]
