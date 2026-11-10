@@ -630,121 +630,8 @@ def _ti(Y, D) -> OrderedSet:
     return OrderedSet.intersection(*iids)
 
 
-def generate_perturbations(x, d, n, low_val, high_val):
-    perturbation = np.random.uniform(low_val, high_val, size=(n, len(d)))
-    signs = np.random.choice([-1, 1], size=(n, len(d)))
-    perturbation *= signs
-    perturbed = np.tile(x, (n, 1))
-    perturbed[:, d] += perturbation
-    return perturbed
 
 
-def generate_synthetic_data(_target, _other, callable, dims):
-    '''
-
-    :param _target: data where callable returns True
-    :param _other:  data where callable returns False
-    :param callable: takes input data and returns True or False
-    :param dims: dimensions of input data that should be perturbed
-    :return:
-            _synth_target: synthetitc data that is close to _target and callable return True
-            _synth_other: synthetic data that is close to _target and callable returns False
-    '''
-    _synth_target, _synth_other = [], []
-    # n_samples = min(256, max(64, 2 ** (len(dims) + 1)))
-    n_samples = min(128, max(16, 2 ** (len(dims) + 1)))
-    n_max_iter = 10
-    for x in _target:
-        labels = np.array([True])
-        _perturbed_target = []
-        _perturbed_other = []
-        hi = 0.5
-        lo = 0
-        inc = hi - lo
-        _i = 0
-        _true_i = 0
-        while np.all(labels) and _i <= n_max_iter:  # as long as we only find positive examples, we keep expanding
-            perturbed = generate_perturbations(x, dims, n_samples, low_val=lo, high_val=hi)
-            labels: np.array[bool] = callable(perturbed)
-            if np.any(labels) and not (len(_perturbed_other) > 0 and len(_perturbed_other[-1]) > 0):
-                # if we already had negative samples in the last iteration, don't introduce more positive samples
-                perturbed_target = perturbed[labels]
-            else:
-                perturbed_target = []
-            _perturbed_target.append(perturbed_target)
-            if not np.all(labels):
-                perturbed_other = perturbed[np.logical_not(labels)]  # ~labels
-            else:
-                perturbed_other = []
-            _perturbed_other.append(perturbed_other)
-            if len(perturbed_other) == 0:  # we haven't found any negative samples
-                hi += inc
-                lo += inc
-            else:
-                # we found negative samples, will increase hi/lo less
-                hi += inc*0.5
-                lo += inc*0.5
-                if len(_perturbed_other) > 1 and len(_perturbed_other[-2]) > 0:
-                    break  # we have added perturbed samples twice, quit
-                else:
-                    # we have added perturbed samples only once, make sure to make another iteration by setting _i low enough
-                    _i = n_max_iter-1
-            _i += 1
-            _true_i += 1
-            print(_true_i)
-
-        _perturbed_target = [p for p in _perturbed_target if len(p) > 0]
-        if len(_perturbed_target) > 0:
-            _perturbed_target = np.vstack(_perturbed_target)
-            _synth_target.append(_perturbed_target)
-        _perturbed_other = [p for p in _perturbed_other if len(p) > 0]
-        if len(_perturbed_other) > 0:
-            _perturbed_other = np.vstack(_perturbed_other)
-            _synth_other.append(_perturbed_other)
-
-        # if len(_perturbed_target) > 0 and len(_perturbed_other) > 0:
-        #     _pt_shifted = _perturbed_target - x
-        #     _po_shifted = _perturbed_other - x
-        #     # search for min max _shift_ wrt original x
-        #     dims_bounds_target, dims_bounds_other = find_max_pos_and_min_neg(_pt_shifted, _po_shifted, dims)
-        #     dbt_pos = [d[1] for d in dims_bounds_target]
-        #     dbt_neg = [d[0] for d in dims_bounds_target]
-        #     x_synth_target = np.tile(x, (2, 1))
-        #     x_synth_target[0, dims] += dbt_pos
-        #     x_synth_target[1, dims] += dbt_neg
-        #     _synth_target.append(x_synth_target)
-        #
-        #     dbo_pos = [d[1] for d in dims_bounds_other]
-        #     dbo_neg = [d[0] for d in dims_bounds_other]
-        #     x_synth_other = np.tile(x, (2, 1))
-        #     x_synth_other[0, dims] += dbo_pos
-        #     x_synth_other[1, dims] += dbo_neg
-        #     _synth_other.append(x_synth_other)
-        #
-        #
-        # elif len(_perturbed_target) > 0:
-        #     # only positive samples, make box as big as possible
-        #     dbt_pos = np.max(_perturbed_target[:, dims], axis=0)
-        #     dbt_neg = np.min(_perturbed_target[:, dims], axis=0)
-        #     x_synth_target = np.tile(x, (2, 1))
-        #     x_synth_target[0, dims] += dbt_pos
-        #     x_synth_target[1, dims] += dbt_neg
-        #     _synth_target.append(x_synth_target)
-        #
-        # else:  # len(_perturbed_other) > 0
-        #     # only negative samples
-        #     dbo_pos = np.max(_perturbed_target[:, dims], axis=0)
-        #     dbo_neg = np.min(_perturbed_target[:, dims], axis=0)
-        #     x_synth_other = np.tile(x, (2, 1))
-        #     x_synth_other[0, dims] += dbo_pos
-        #     x_synth_other[1, dims] += dbo_neg
-        #     _synth_other.append(x_synth_other)
-
-    if len(_synth_target) > 0:
-        _synth_target = np.vstack(_synth_target)
-    if len(_synth_other) > 0:
-        _synth_other = np.vstack(_synth_other)
-    return _synth_target, _synth_other
 
 
 def list_closed_no_rules(C, N, i, t, D, I, T, results, closure=None, parent: ItemsetNode=None,
@@ -860,29 +747,9 @@ def list_closed_dscriminatory(C, N, i, t, D, I, T, results,
         newNode.data_target = _data_target.copy()
 
         if is_frequent:
-            # model callable takes data and returns True if sample is in target class, False otherwise
-            if model_callable is not None:
-                _synthetic_data_target, _synthetic_data_other = generate_synthetic_data(
-                    _data_target, data_other, model_callable, list(_C_prime)
-                )
-                # print(f"generated {len(_synthetic_data_other)+len(_synthetic_data_target)} samples")
-                if len(_synthetic_data_target) > 0:
-                    _enriched_data_target = np.vstack([_data_target, _synthetic_data_target])
-                    if dt_kwargs is None:
-                        dt_kwargs = {}
-                    dt_kwargs['class_weight'] = ['balanced']
-                else:
-                    _enriched_data_target = _data_target
-                if len(_synthetic_data_other) > 0:
-                    if dt_kwargs is None:
-                        dt_kwargs = {}
-                    dt_kwargs['class_weight'] = ['balanced']
-                    _enriched_data_other = np.vstack([data_other, _synthetic_data_other])
-                else:
-                    _enriched_data_other = data_other
-            else:
-                _enriched_data_target = data_target
-                _enriched_data_other = data_other
+            # rules are computed on all samples of the target class passed to this node, not only the itemset's support
+            _enriched_data_target = data_target
+            _enriched_data_other = data_other
 
             newNode.compute_initial_rules(_enriched_data_target)
             newNode.compute_statistics(_data_target, data_other)
@@ -941,6 +808,8 @@ def gely_discriminatory(B, threshold, X_target, X_other, item_order, remove_copm
     :param threshold: frequency threshold used to determine if an itemset is considered frequent
     :return:
     '''
+    if model_callable is not None:
+        raise NotImplementedError("synthetic-data path (model_callable) is not part of the package")
 
     if 0 < threshold < 1:
         threshold = int(B.shape[0] * threshold)
