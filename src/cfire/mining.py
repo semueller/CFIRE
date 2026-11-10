@@ -913,7 +913,7 @@ def list_closed_dscriminatory(C, N, i, t, D, I, T, results,
                 list_closed_dscriminatory(_C_prime, N, _next_i,  # What if min(X) == max(I)?
                             t, _D, I, T, results, _data_target, data_other,
                                           closure, parent=newNode, direction='left',
-                                          subset_test=subset_test)
+                                          subset_test=subset_test, dt_kwargs=dt_kwargs)
 
         idx = np.argwhere(I == _i_prime).squeeze()+1  # {k in I\C: k > _i_prime}
         Y = I[idx:]  # not out of bounds, just empty
@@ -927,7 +927,7 @@ def list_closed_dscriminatory(C, N, i, t, D, I, T, results,
             list_closed_dscriminatory(C, N.union({_i_prime}), _i_prime_prime, t,
                         _D, I, T, results, _data_target, data_other,
                                       closure, parent=newNode_pp, direction='right',
-                                      subset_test=subset_test)
+                                      subset_test=subset_test, dt_kwargs=dt_kwargs)
 
     return
 
@@ -1040,7 +1040,8 @@ def gely_discriminatory(B, threshold, X_target, X_other, item_order, remove_copm
                         list_closed_dscriminatory(
                             C=OrderedSet(), N=OrderedSet(), i=I[0], t=_t, D=_D, I=I, T=T,
                             results=_fcis, data_target=X_target.copy(), data_other=X_other, parent=root_node,
-                            closure=closure, subset_test=subset_test, model_callable=model_callable
+                            closure=closure, subset_test=subset_test, model_callable=model_callable,
+                            dt_kwargs=dt_kwargs
                         )
 
     # remove data from nodes for saving; put data in root_node
