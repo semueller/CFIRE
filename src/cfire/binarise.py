@@ -86,3 +86,12 @@ def __preprocess_explanations_ext(
     e[e < 0.] = 0.
 
     return e
+
+
+def binarise_threshold(explanations, threshold: float = 0.01):
+    """Binary relevance matrix from attribution scores (default binariser of CFIRE).
+
+    Each row is divided by its largest absolute value; features with a normalised score below `threshold`
+    (including all negative scores) are not relevant. Returns a boolean array of the same shape.
+    """
+    return __preprocess_explanations(explanations, threshold) > 0

@@ -53,6 +53,20 @@ class DNFClassifier:
 
 
 
+    def __iter__(self):
+        self.current = -1
+        return self
+
+    def __next__(self):
+        self.current += 1
+        if self.current < self.n_classes:
+            return self.rules[self.current]
+        raise StopIteration
+
+    def __getitem__(self, idx):
+        # make class subscriptable
+        return self.rules[idx]
+
     def purge_dummy_rules(self):
         purged_rules = []
         for class_rules in self.rules:

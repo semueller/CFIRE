@@ -506,7 +506,7 @@ class ItemsetNode():
 
                 def _fit_tree(pg, cv, X, Y):
 
-                    grid_search = GridSearchCV(DT(), pg, cv=int(cv), scoring='accuracy')
+                    grid_search = GridSearchCV(DT(random_state=(dt_kwargs or {}).get('random_state')), pg, cv=int(cv), scoring='accuracy')
                     # Fit the GridSearchCV object to the data
                     grid_search.fit(X, Y)
                     dt = grid_search.best_estimator_

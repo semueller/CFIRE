@@ -1,4 +1,5 @@
 import logging
+import warnings
 import pickle
 import gzip
 from pathlib import Path
@@ -12,6 +13,7 @@ from .rules import DNFClassifier
 
 from .mining import gely_discriminatory, ItemsetNode
 from .cover import _comp_greedy_cover
+from .binarise import binarise_threshold
 
 from typing import NamedTuple, Optional
 
@@ -25,7 +27,18 @@ class ItemsetNodeCollection(NamedTuple):
 class CFIRE:
 
     def __init__(self, localexplainer_fn, explanations: Optional[numpy.ndarray], inference_fn, expl_binarization_fn=None,
-                 frequency_threshold=0.01, composition_strategy=_comp_greedy_cover, max_dt_depth=7, meta_data=None):
+                 frequency_threshold=0.01, composition_strategy=_comp_greedy_cover, max_dt_depth=None, meta_data=None,
+                 random_state=None):
+        """
+        :param expl_binarization_fn: maps the explanation matrix (n_samples, n_features) to a binary matrix of relevant
+            features; default: `binarise_threshold` (row-wise max-abs normalisation, values below 0.01 are not relevant).
+        :param frequency_threshold: minimum support (fraction of samples of a class) of a closed itemset.
+        :param max_dt_depth: upper bound for the depth grid of the shallow trees that turn an itemset into rules.
+            None (default): adaptive, depth grid range(1, max(8 - |itemset|, 2)) as in the CFIRE paper (2025).
+            An int fixes the grid to range(1, max_dt_depth) for all itemsets (pruning study: 7).
+        :param random_state: seed for the decision trees (ties between equally good splits are broken at random);
+            None reproduces the unseeded behaviour of the original code.
+        """
         # MISSING:
         # - behavior of grid search during rule fitting (min/max_depth),
         # - inference strategy for DNF
@@ -33,7 +46,7 @@ class CFIRE:
         # Callables
         self._localexplainer_fn = localexplainer_fn
         self._inference_fn = inference_fn
-        self._expl_binarization_fn = expl_binarization_fn if expl_binarization_fn is not None else -1
+        self._expl_binarization_fn = expl_binarization_fn if expl_binarization_fn is not None else binarise_threshold
         self._composition_strategy = composition_strategy
 
         # input samples used for fitting CFIRE object
@@ -72,6 +85,7 @@ class CFIRE:
 
         # Hyperparameters
         self._max_dt_depth = max_dt_depth
+        self._random_state = random_state
         self._frequency_threshold = frequency_threshold
 
         self._is_fit = False
@@ -120,7 +134,7 @@ class CFIRE:
                          'item_order': item_order,
                          # 'model_callable': self._inference_fn,
                          'compute_rules': True,
-                         'dt_kwargs': {'max_depth': self._max_dt_depth},
+                         'dt_kwargs': self._dt_kwargs(),
                          'subset_test': True # TODO: enable this?
                          }
 
@@ -133,6 +147,14 @@ class CFIRE:
         self._compute_times['_calculate_rule_candidates'] = time.time() - _start_time
         return
 
+    def _dt_kwargs(self):
+        kw = {}
+        if self._max_dt_depth is not None:
+            kw['max_depth'] = self._max_dt_depth
+        if self._random_state is not None:
+            kw['random_state'] = self._random_state
+        return kw
+
     def _compose_rule_model(self):
         _start_time = time.time()
         n_classes = len(np.unique(self._labels))
@@ -143,6 +165,8 @@ class CFIRE:
         for class_idx in range(n_classes):
             nodes_c = self._itemsetnodes[class_idx]
             if nodes_c is None or len(nodes_c) == 0 or len(nodes_c[1]) == 0:
+                warnings.warn(f"CFIRE: no closed frequent itemsets for class {class_idx}; the class gets no rules "
+                              f"(frequency_threshold={self._frequency_threshold})")
                 _DNF.append(DNFClassifier(rules=[[]]))
                 self.frequent_nodes.append(ItemsetNodeCollection([], []))
                 continue
@@ -152,6 +176,8 @@ class CFIRE:
             root = _all_nodes[0]; assert root.parent is None
             freq_nodes = root.get_frequent_children()
             if freq_nodes is None or len(freq_nodes) == 0:
+                warnings.warn(f"CFIRE: no frequent itemsets for class {class_idx}; the class gets no rules "
+                              f"(frequency_threshold={self._frequency_threshold})")
                 _DNF.append(DNFClassifier(rules=[[]]))
                 self.frequent_nodes.append(ItemsetNodeCollection([], []))
                 continue
