@@ -1,7 +1,10 @@
+from __future__ import annotations # python 3.10 +
 import numpy as np
 from functools import reduce
 from itertools import chain
 from copy import deepcopy
+
+
 
 import sys, warnings
 
@@ -165,15 +168,22 @@ class OrderedSet:
         return self == other
 
 class ItemsetNode():
-    def __init__(self, parent=None, itemset=None, compute_rules=None, rel_items_global=None, n_samples_global=None):
+    def __init__(self, parent : ItemsetNode | None =None, itemset=None, compute_rules=None, rel_items_global: OrderedSet=None, n_samples_global: int =None):
+        '''
+        :param parent:
+        :param itemset:
+        :param compute_rules: if anything other than None rules will be computed
+        :param rel_items_global:
+        :param n_samples_global:
+        '''
         self.parent = parent
         self.depth = parent.depth + 1 if parent is not None else 0
-        self.left = None
-        self.right = None
+        self.left: ItemsetNode | None = None
+        self.right: ItemsetNode | None = None
 
         self.complexity_limit = 8
-        self.rel_items_global = rel_items_global
-        self.n_samples_global = n_samples_global
+        self.rel_items_global: OrderedSet = rel_items_global
+        self.n_samples_global: int = n_samples_global
 
         self.gely_state = None
 
@@ -194,7 +204,8 @@ class ItemsetNode():
         self.recall = np.nan
         self.f1 = np.nan
         self.coverage_ratio = np.nan
-        self.complexity_factor = np.nan
+        #max possible number of rules in binary tree of size complexity_limit and complexity_limit many rules
+        self.complexity_factor = np.nan # 1 - np.log2(self.dnf.n_literals) / np.log2(2**self.complexity_limit * self.complexity_limit)
         self.completeness_factor = np.nan
 
     def get_sibling(self, child):
@@ -246,6 +257,7 @@ class ItemsetNode():
         if self.accuracy is np.nan:
             self.compute_purity(self.data_target, self.data_other)
         return self.accuracy
+
 
     def _get_upper_complexity_bound(self, _n=None):
         # maximum number of literals
@@ -468,7 +480,7 @@ class ItemsetNode():
 
                 assert len(_X_app) == len(_Y_new)
 
-                if dt_kwargs is not None and 'mex_depth' in dt_kwargs.keys():
+                if dt_kwargs is not None and 'max_depth' in dt_kwargs.keys():
                     _max_depth = dt_kwargs['max_depth']
                 else:
                     # _max_depth = min([max(self.complexity_limit - len(self.itemset), 2), self.complexity_limit])
@@ -550,13 +562,10 @@ class ItemsetNode():
             _new_dnfs[-1].append([(-1, (np.nan, np.nan))])
 
         assert len(_new_dnfs) == 1
-        new_dnf = DNFClassifier(_new_dnfs, self.dnf.tie_break)
+        new_dnf = DNFClassifier(_new_dnfs, self.dnf.tie_break) # TODO: why do we 'keep' tie break here?
         self.dnf = new_dnf
         self._dnfs.append(new_dnf)
         self.compute_complexity_factor()
-
-
-
 
 class recursionlimit:
     def __init__(self, limit):
@@ -607,10 +616,8 @@ def _ti(Y, D) -> OrderedSet:
     iids = [D[tid] for tid in Y]
     return OrderedSet.intersection(*iids)
 
-
 def get_default_closure(Database):
     return lambda X: _ti(_it(X, Database), Database)
-
 
 ## frequency check and closure operator using binary matrix instead of sets and list
 
@@ -622,7 +629,6 @@ def _ti_binary_matrix(Y, B) -> set:
         intersected = np.expand_dims(intersected, 0)
     intersected = list(intersected)
     return set(intersected)
-
 
 def _it_binary_matrix(X, B) -> set:
     tids = [set(list(np.argwhere(B[:, x]).squeeze(1))) for x in X]
@@ -894,7 +900,7 @@ def list_closed_no_rules(C, N, i, t, D, I, T, results, closure=None, parent: Ite
 
 def list_closed_dscriminatory(C, N, i, t, D, I, T, results,
                               data_target, data_other, closure=None, parent: ItemsetNode=None,
-                              subset_test=False, direction=None, model_callable=None):
+                              subset_test=False, direction=None, model_callable=None, dt_kwargs=None):
     # TODO
     #  subset_test ->
     #  Q: should we filter data according to support and even put data from other nodes into other?
@@ -945,17 +951,22 @@ def list_closed_dscriminatory(C, N, i, t, D, I, T, results,
 
         if is_frequent:
             # model callable takes data and returns True if sample is in target class, False otherwise
-            dt_kwargs = None
             if model_callable is not None:
-                _synthetic_data_target, _synthetic_data_other = generate_synthetic_data(_data_target, data_other, model_callable, list(_C_prime))
+                _synthetic_data_target, _synthetic_data_other = generate_synthetic_data(
+                    _data_target, data_other, model_callable, list(_C_prime)
+                )
                 # print(f"generated {len(_synthetic_data_other)+len(_synthetic_data_target)} samples")
                 if len(_synthetic_data_target) > 0:
                     _enriched_data_target = np.vstack([_data_target, _synthetic_data_target])
-                    dt_kwargs = {'class_weight': ['balanced']}
+                    if dt_kwargs is None:
+                        dt_kwargs = {}
+                    dt_kwargs['class_weight'] = ['balanced']
                 else:
                     _enriched_data_target = _data_target
                 if len(_synthetic_data_other) > 0:
-                    dt_kwargs = {'class_weight': ['balanced']}
+                    if dt_kwargs is None:
+                        dt_kwargs = {}
+                    dt_kwargs['class_weight'] = ['balanced']
                     _enriched_data_other = np.vstack([data_other, _synthetic_data_other])
                 else:
                     _enriched_data_other = data_other
@@ -1010,8 +1021,9 @@ def list_closed_dscriminatory(C, N, i, t, D, I, T, results,
 
     return
 
+
 def gely_discriminatory(B, threshold, X_target, X_other, item_order, remove_copmlete_transactions=True,
-                        subset_test=False, model_callable=None, compute_dt=True, compute_rules=True):
+                        subset_test=False, model_callable=None, compute_dt=True, compute_rules=True, dt_kwargs=None):
     '''
     :param D: Is a binary matrix;
               Columns = Items, index used as ordering
@@ -1093,7 +1105,8 @@ def gely_discriminatory(B, threshold, X_target, X_other, item_order, remove_copm
             list_closed_dscriminatory(
                 C=OrderedSet(), N=OrderedSet(), i=I[0], t=_t, D=_D, I=I, T=T,
                 results=_fcis, data_target=X_target.copy(), data_other=X_other, parent=root_node,
-                closure=closure, subset_test=subset_test, model_callable=model_callable
+                closure=closure, subset_test=subset_test, model_callable=model_callable,
+                dt_kwargs=dt_kwargs # passed the dt depth
             )
     except RecursionError as e:
         if hasattr(e, 'message'):

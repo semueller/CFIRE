@@ -258,3 +258,52 @@ def __preprocess_explanations(explanations, filtering):
         # e[np.abs(e) < significance_threshold] = 0. USING NEGATIVE VALUES IN EXPLS AS A PATTERN TO COMPUTE A DNF MAKES NO SENSE
         e[e < filtering] = 0.
     return e
+
+def __preprocess_explanations_ext(
+    explanations: np.ndarray,
+    *,
+    top_k: int | None = None,
+    fraction: float | None = None,
+    threshold: float | None = None,
+    use_abs: bool = False
+):
+    """
+    Scale each row to [-1, 1] then zero-out less relevant features using a filter, choose ONE:
+    - `top_k`: keep k most relevant features per row
+    - `fraction`: keep fraction of most relevant values per row
+    - `threshold`: keep features with values above threshold
+
+    Optional Flag:
+    - `use_abs`: Consider absolute values, instead of priotizing positive ones
+    """
+
+    # make sure only one filter is applied
+    if sum(arg is not None for arg in (top_k, fraction, threshold)) != 1:
+        raise ValueError("Specify exactly one of top_k, fraction, or threshold")
+
+    # normalize magnitude
+    e = deepcopy(explanations)
+    _max = np.expand_dims(np.max(np.abs(e), -1), -1)
+    _max[np.argwhere(_max == 0)[:, 0], 0] = 1  # to avoid divide by zero
+    e /= _max
+
+    # TODO: we keep negatives for the normalization, good idea?!
+
+    # apply value threshold, early return
+    if threshold is not None:
+        e[e < threshold] = 0. # TODO: should we also clamp here?
+        return e
+
+    # determine k value (via top_k or fraction)
+    k = int(np.ceil(fraction * e.shape[-1]) if fraction is not None else top_k)
+
+    # zero out all values expect top k
+    order = np.argsort(np.abs(e) if use_abs else e, axis=-1)[:, :-k]
+    for i, _args in enumerate(order):
+        e[i, _args] = 0.
+
+    # clamp negatives TODO: can this actually happen?
+    e[e < 0.] = 0.
+
+    return e
+
