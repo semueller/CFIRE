@@ -33,9 +33,14 @@ class CFIRE:
         :param expl_binarization_fn: maps the explanation matrix (n_samples, n_features) to a binary matrix of relevant
             features; default: `binarise_threshold` (row-wise max-abs normalisation, values below 0.01 are not relevant).
         :param frequency_threshold: minimum support (fraction of samples of a class) of a closed itemset.
-        :param max_dt_depth: upper bound for the depth grid of the shallow trees that turn an itemset into rules.
-            None (default): adaptive, depth grid range(1, max(8 - |itemset|, 2)) as in the CFIRE paper (2025).
-            An int fixes the grid to range(1, max_dt_depth) for all itemsets (pruning study: 7).
+        :param max_dt_depth: exclusive upper bound of the depth grid searched (5-fold CV) for the shallow trees that turn
+            an itemset into rules; the deepest tree considered has depth max_dt_depth - 1.
+            None (default): adaptive, grid range(1, max(8 - |itemset|, 2)), i.e. depth up to 6 for single features and
+            less for larger itemsets. This is what the CFIRE paper (2025) and, for almost all itemsets, the pruning
+            study ran (both papers state "maximum depth 7").
+            An int fixes the grid to range(1, max_dt_depth) for all itemsets.
+            Small samples cap it further: fewer than 5 samples in a class -> depth <= 2; at most 10 samples -> depth 1;
+            at most 2 samples in a class -> no tree, the itemset's box is kept as the rule.
         :param random_state: seed for the decision trees (ties between equally good splits are broken at random);
             None reproduces the unseeded behaviour of the original code.
         """
