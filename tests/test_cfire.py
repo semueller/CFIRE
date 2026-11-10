@@ -96,3 +96,28 @@ def test_safe_pruning_keeps_predictions(iris):
     pruned = DNFClassifier(rules, "accuracy")
     pruned.compute_rule_performance(X, y)
     assert np.mean(pruned.predict(X) == y) == np.mean(before == y)
+
+
+def test_dnf_json_roundtrip(iris):
+    import json
+    X, y, E = iris
+    cf = fit(X, y, E, random_state=0)
+    d = json.loads(json.dumps(cf.dnf.to_dict(feature_names=["a", "b", "c", "d"])))
+    back = DNFClassifier.from_dict(d)
+    assert np.array_equal(back.predict(X), cf.dnf.predict(X))
+    assert d["feature_names"] == ["a", "b", "c", "d"]
+
+
+def test_select_per_explainer(iris):
+    from cfire import CFIRESelect, covered_accuracy
+    X, y, E = iris
+    rng = np.random.default_rng(0)
+    sel = CFIRESelect({"good": E, "noise": rng.normal(size=E.shape)}, random_state=0)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        sel.fit(X, y)
+    assert set(sel.models_) == {"good", "noise"} and sel.selected_ in sel.models_
+    assert sel.scores_[sel.selected_] == max(sel.scores_.values())
+    assert sel.scores_["good"] == covered_accuracy(sel.models_["good"].dnf, X, y)
+    sel.reselect("accuracy")  # no refit
+    assert sel.fitness == "accuracy" and np.array_equal(sel(X), sel.dnf.predict(X))

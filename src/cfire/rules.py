@@ -67,6 +67,46 @@ class DNFClassifier:
         # make class subscriptable
         return self.rules[idx]
 
+    # ---- serialisation ------------------------------------------------------------------------------------------
+    def to_dict(self, feature_names=None) -> dict:
+        """JSON-serialisable form: per class a list of rules (conjunctions of [feature, lower, upper]; None = unbounded,
+        a literal holds for lower < x <= upper) and per rule its statistics on the data the model was scored on
+        (the tie-break "accuracy" uses the rule's precision)."""
+        def bound(v):
+            v = float(v)
+            return None if not np.isfinite(v) else v
+
+        classes = []
+        for c, class_rules in enumerate(self.rules):
+            stats = self.rule_performances.get(c, {})
+            rules, rule_stats = [], []
+            for clause in class_rules:
+                rules.append([[int(d), bound(lo), bound(hi)] for d, (lo, hi) in clause])
+                st = stats.get(tuple(clause))
+                rule_stats.append(None if st is None else
+                                  {"precision": float(st["accuracy"]), "recall": float(st["recall"]), "f1": float(st["f1"])})
+            classes.append({"class": c, "rules": rules, "rule_stats": rule_stats})
+        out = {"format": "cfire.DNFClassifier/1", "tie_break": self.tie_break, "classes": classes}
+        if feature_names is not None:
+            out["feature_names"] = list(map(str, feature_names))
+        return out
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "DNFClassifier":
+        def bound(v, default):
+            return default if v is None else float(v)
+
+        rules = [[[(int(f), (bound(lo, -np.inf), bound(hi, np.inf))) for f, lo, hi in rule] for rule in c["rules"]]
+                 for c in d["classes"]]
+        dnf = cls(rules, d.get("tie_break", "first"))
+        for c, cdict in enumerate(d["classes"]):
+            perf = {}
+            for clause, st in zip(dnf.rules[c], cdict.get("rule_stats", [])):
+                if st is not None:
+                    perf[tuple(clause)] = {"accuracy": st["precision"], "recall": st["recall"], "f1": st["f1"]}
+            dnf.rule_performances[c] = perf
+        return dnf
+
     def purge_dummy_rules(self):
         purged_rules = []
         for class_rules in self.rules:
