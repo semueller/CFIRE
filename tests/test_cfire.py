@@ -121,3 +121,35 @@ def test_select_per_explainer(iris):
     assert sel.scores_["good"] == covered_accuracy(sel.models_["good"].dnf, X, y)
     sel.reselect("accuracy")  # no refit
     assert sel.fitness == "accuracy" and np.array_equal(sel(X), sel.dnf.predict(X))
+
+
+def _legacy_preprocess(explanations, filtering):
+    """__preprocess_explanations of the CFIRE paper code (tag wcxai2025, cfire/util.py), for parity only"""
+    from copy import deepcopy
+    e = deepcopy(explanations)
+    _max = np.expand_dims(np.max(np.abs(e), -1), -1)
+    _max[np.argwhere(_max == 0)[:, 0], 0] = 1
+    e /= _max
+    if type(filtering) == str:
+        _k = eval(filtering.split('topkabs')[1] if 'abs' in filtering else filtering.split('topk')[1])
+        if _k < 1:
+            _k = int(np.ceil(_k * e.shape[-1]))
+        _arg_sorted = np.argsort(np.abs(e) if 'abs' in filtering else e, axis=-1)[:, :-_k]
+        for i, _args in enumerate(_arg_sorted):
+            e[i, _args] = 0.
+        e[e < 0.] = 0.
+    else:
+        e[e < filtering] = 0.
+    return e
+
+
+def test_binarisers_match_paper_code():
+    from cfire import binarise_topk, binarise_topk_abs
+    rng = np.random.default_rng(0)
+    E = rng.normal(size=(200, 9))
+    E[3] = 0.0  # a row without any attribution
+    assert np.array_equal(binarise_threshold(E, 0.01), _legacy_preprocess(E, 0.01) > 0)
+    for k, s in ((3, "3"), (0.25, "0.25")):
+        assert np.array_equal(binarise_topk(E, k), _legacy_preprocess(E, f"topk{s}") > 0)
+        assert np.array_equal(binarise_topk_abs(E, k), _legacy_preprocess(E, f"topkabs{s}") > 0)
+    assert binarise_topk(E, 3).sum(1).max() <= 3 and not binarise_topk(E, 3)[3].any()

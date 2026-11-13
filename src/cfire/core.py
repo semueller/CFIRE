@@ -13,7 +13,7 @@ from .rules import DNFClassifier
 
 from .mining import gely_discriminatory, ItemsetNode
 from .cover import _comp_greedy_cover
-from .binarise import binarise_threshold
+from .binarise import binarise_threshold, relevance_scores
 
 from typing import NamedTuple, Optional
 
@@ -28,7 +28,7 @@ class CFIRE:
 
     def __init__(self, localexplainer_fn, explanations: Optional[numpy.ndarray], inference_fn, expl_binarization_fn=None,
                  frequency_threshold=0.01, composition_strategy=_comp_greedy_cover, max_dt_depth=None, meta_data=None,
-                 random_state=None):
+                 random_state=None, item_order="relevance"):
         """
         :param expl_binarization_fn: maps the explanation matrix (n_samples, n_features) to a binary matrix of relevant
             features; default: `binarise_threshold` (row-wise max-abs normalisation, values below 0.01 are not relevant).
@@ -43,7 +43,16 @@ class CFIRE:
             at most 2 samples in a class -> no tree, the itemset's box is kept as the rule.
         :param random_state: seed for the decision trees (ties between equally good splits are broken at random);
             None reproduces the unseeded behaviour of the original code.
+        :param item_order: order in which features (items) are enumerated by the closed-itemset miner, per class.
+            "relevance" (default; CFIRE paper 2025, gely_sort_items=True): descending column sums of the normalised,
+            thresholded scores (`relevance_scores`) of the class's explanations; "natural": feature index order.
+            The closed itemsets are the same either way, but each candidate's tree is fitted on the samples passed
+            down from its parent node, which depends on the enumeration order.
+            AUDIT: effect not yet measured systematically; remove if it makes no measurable difference.
         """
+        if item_order not in ("relevance", "natural"):
+            raise ValueError(f"item_order must be 'relevance' or 'natural', got {item_order!r}")
+        self._item_order = item_order
         # MISSING:
         # - behavior of grid search during rule fitting (min/max_depth),
         # - inference strategy for DNF
@@ -131,7 +140,13 @@ class CFIRE:
             data_other = self._data[~mask_targets]
             assert len(data_target) > 0 and len(data_other) > 0
             expls_target = self._binarized_explanations[mask_targets]
-            item_order = np.arange(self._data.shape[1])  #np.argsort(np.sum(expls_target, axis=1))[::-1]
+            if self._item_order == "relevance":  # AUDIT, see __init__
+                if self._expl_binarization_fn is not binarise_threshold:
+                    raise ValueError('item_order="relevance" needs the default binariser; use item_order="natural"')
+                scores = relevance_scores(np.asarray(self._explanations)[mask_targets])
+                item_order = np.argsort(np.sum(scores, 0)).squeeze()[::-1]  # as cfire.py (2025), gely_sort_items
+            else:
+                item_order = np.arange(self._data.shape[1])
             gely_args = {'B': expls_target,
                          'threshold': self._frequency_threshold,
                          'X_target': data_target,
