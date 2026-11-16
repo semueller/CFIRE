@@ -5,6 +5,8 @@ description = "CFIRE: combine local explanations into a global rule model of a b
 readme = "README.md"
 requires-python = ">=3.10"
 authors = [{ name = "Sebastian R. Müller" }]
+license = "MIT"
+license-files = ["LICENSE"]
 dependencies = [
     "numpy>=1.24",
     "scikit-learn>=1.3",
