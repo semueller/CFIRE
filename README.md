@@ -1,14 +1,11 @@
 # CFIRE
 
-CFIRE turns local explanations of a black-box classifier into a global rule model. For each class it marks the
-features each explanation deems relevant, mines closed frequent sets of these features, turns them into interval rules
-with shallow decision trees, and selects a compact set of rules by greedy set cover. The result is a rule model in
-disjunctive normal form that describes the black box's predictions, and that abstains where no rule applies.
+CFIRE turns local explanations of a black-box classifier on tabular data into a global rule model. For each class it marks the features each explanation deems relevant, mines closed frequent sets of these features, turns them into interval rules with shallow decision trees, and selects a compact set of rules by greedy set cover. The result is a rule model in disjunctive normal form that describes the black box's predictions and rejects where it doesn't apply. Publication: https://doi.org/10.1007/978-3-032-08324-1_1 .
 
-The local explainer is a free choice: CFIRE takes any attribution matrix (SHAP, LIME, Integrated Gradients, ...).
+The local explainer is a free choice, by default CFIRE can take any attribution matrix (SHAP, LIME, Integrated Gradients, ...).
 `CFIRESelect` fits one rule model per explainer and selects one per black box.
 
-Work in progress: the package covers the CFIRE algorithm of the paper versions below; more features will follow.
+![CFIRE pipeline: black box, data and local explainers go in; per class, important features, closed frequent feature sets, candidate rules and selected class rules; one rule model per explainer, the most precise is chosen](docs/cfire_overview.png)
 
 ## Install
 
@@ -44,13 +41,13 @@ depth of the rule trees (adaptive by default), `random_state` for the trees.
 ## Paper versions
 
 The code used for the papers is available at tags:
-- CFIRE (World Conference on Explainable AI 2025): tag `wcxai2025`
-- Pruning of CFIRE rule models (arXiv:2601.03776): tag `pruning-paper` (branch `pruning`)
+- `CFIRE: A General Method for Combining Local Explanations` [xAI 2025, Springer Open Access](https://doi.org/10.1007/978-3-032-08324-1_1): tag `wcxai2025`
+- `Improving Compactness and Reducing Ambiguity of CFIRE Rule-Based Explanations` [arXiv:2601.03776](https://arxiv.org/abs/2601.03776): tag `pruning-paper` (branch `pruning`)
 
 ## Contributors
 
-Tobias Schneider and Ruben Kemna developed the pruning extension and fixed many parts of the code base on a fork of
-this repository, https://github.com/iMilchshake/CFIRE, where the history of their work is kept. The package in
+Tobias Schneider and Ruben Kemna developed the pruning extension and extended the CFIRE class on a fork of this
+repository, https://github.com/iMilchshake/CFIRE, where the history of their work is kept. The package in
 `src/cfire/` started from their version.
 
 ## Licence
