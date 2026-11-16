@@ -94,7 +94,7 @@ def prune(dnf, X, Y, mode: str = "safe", tolerance: float = 0.05, max_threshold:
     """Prune a rule model by how often its rules win on the fit data (the rule with the best fit-data accuracy among
     the rules matching a sample wins it).
 
-    mode "safe": remove rules that never win (win_threshold 0); predictions on the fit data do not change.
+    mode "safe": remove entirely redundant rules based on the fit data (rules that never win; win_threshold 0).
     mode "best": raise the threshold 0, 1, ..., max_threshold and keep the last rule model whose accuracy on the fit
     data stays at or above (1 - tolerance) times the original accuracy (the search of the pruning paper; tolerance
     0.05 there). Wins are counted once, on the original rule model.
