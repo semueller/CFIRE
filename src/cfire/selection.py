@@ -20,7 +20,7 @@ Fitness = Union[str, FitnessFn]  # name in FITNESS or a function
 
 
 def covered_accuracy(dnf: DNFClassifier, X: np.ndarray, Y: np.ndarray) -> float:
-    """agreement with the black box on the samples the rule model covers (rejects excluded); 0 if none is covered.
+    """precision; agreement with the black box on the samples the rule model covers (rejects excluded); 0 if none is covered.
     Criterion of the CFIRE paper (2025)."""
     pred = np.asarray(dnf.predict(X))
     covered = pred != -1

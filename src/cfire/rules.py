@@ -50,9 +50,6 @@ class DNFClassifier:
     def __call__(self, samples, explain=False):
         return self.predict(samples, explain=explain)
 
-
-
-
     def __iter__(self):
         self.current = -1
         return self
