@@ -32,6 +32,11 @@ cf.dnf.to_dict()         # per class: rules as lists of [feature, lower, upper] 
 sel = CFIRESelect({"shap": E_shap, "lime": E_lime, "ig": E_ig}, random_state=0).fit(X_fit, Y_fit)
 sel.selected_, sel.scores_
 sel.dnf.predict(X_new)
+
+# pruning (second paper below): remove rules that rarely win on the fit data; the original model is kept
+from cfire import prune
+pruned = prune(cf.dnf, X_fit, Y_fit, mode="best", tolerance=0.05)   # mode="safe": no change in fit-data predictions
+pruned.dnf, pruned.removed, pruned.before, pruned.after
 ```
 
 Settings (see the docstring of `CFIRE`): relevance threshold of the binarisation (default 0.01 of the largest

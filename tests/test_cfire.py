@@ -135,3 +135,25 @@ def test_binarisers():
     assert binarise_topk(E, 0.4).tolist() == binarise_topk(E, 2).tolist()  # fraction: ceil(0.4 * 5) = 2
     with pytest.raises(ValueError):
         binarise_topk(E, 1.5)
+
+
+def test_prune(iris):
+    """safe keeps fit-data predictions; best stays within the tolerance; original untouched; removed + kept = original"""
+    import copy
+    from cfire import prune
+    X, y, E = iris
+    cf = fit(X, y, E, random_state=0)
+    original = copy.deepcopy(cf.dnf.rules)
+    safe = prune(cf.dnf, X, y, mode="safe")
+    assert np.array_equal(safe.dnf.predict(X), cf.dnf.predict(X)) and safe.win_threshold == 0
+    best = prune(cf.dnf, X, y, mode="best", tolerance=0.05)
+    assert best.after["accuracy"] >= 0.95 * best.before["accuracy"] - 1e-12
+    assert best.after["n_rules"] <= safe.after["n_rules"] <= safe.before["n_rules"]
+    assert cf.dnf.rules == original  # not modified
+    for res in (safe, best):
+        kept = [r for c in res.dnf.rules for r in c]
+        assert len(kept) + len(res.removed) == sum(len(c) for c in original)
+        assert all(r["rule"] in original[r["class"]] and 0 <= r["share_covered_by_kept"] <= 1 for r in res.removed)
+        json_safe = res.to_dict(); assert set(json_safe) >= {"mode", "win_threshold", "removed", "before", "after"}
+    with pytest.raises(ValueError):
+        prune(cf.dnf, X, y, mode="aggressive")
