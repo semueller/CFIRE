@@ -157,3 +157,94 @@ def test_prune(iris):
         json_safe = res.to_dict(); assert set(json_safe) >= {"mode", "win_threshold", "removed", "before", "after"}
     with pytest.raises(ValueError):
         prune(cf.dnf, X, y, mode="aggressive")
+
+
+# ---- categorical input columns (internal one-hot encoding) ---------------------------------------------------------
+@pytest.fixture(scope="module")
+def categorical():
+    """x0 numeric, colour with 4 values, b binary, x3 numeric; class 1 iff colour in {1, 2} and x0 > 0;
+    the explanations mark x0 and colour as relevant"""
+    rng = np.random.default_rng(0)
+    n = 600
+    x0, colour = rng.normal(size=n), rng.integers(0, 4, n).astype(float)
+    X = np.c_[x0, colour, rng.integers(0, 2, n).astype(float), rng.normal(size=n)]
+    y = (np.isin(colour, [1, 2]) & (x0 > 0)).astype(int)
+    E = np.zeros_like(X)
+    E[:, :2] = 1.0
+    types = ["numeric", "categorical", "categorical", "numeric"]
+    return X, y, E, types
+
+
+def test_encoding():
+    from cfire import Encoding
+    X = np.array([[0.5, 2.0, 1.0], [1.5, 0.0, 0.0], [2.5, 2.0, 0.0]])
+    enc = Encoding.fit(X, ["numeric", "categorical", "categorical"])
+    assert enc.values == [None, [0.0, 2.0], [0.0, 1.0]] and enc.n_encoded == 5
+    assert enc.transform(X).tolist() == [[0.5, 0, 1, 0, 1], [1.5, 1, 0, 1, 0], [2.5, 0, 1, 1, 0]]
+    assert enc.transform(np.array([[0.0, 7.0, 1.0]])).tolist() == [[0.0, 0, 0, 0, 1]]  # unseen value: all zero
+    B = np.array([[True, False, True]])
+    assert enc.expand(B).tolist() == [[True, False, False, True, True]]
+    assert enc.groups() == [[0], [1, 2], [3, 4]]
+    assert Encoding.from_dict(enc.to_dict()) == enc
+    with pytest.raises(ValueError):
+        Encoding.fit(X, ["numeric", "categorical"])
+    with pytest.raises(ValueError):
+        Encoding.fit(X, ["numeric", "nominal", "numeric"])
+
+
+def test_all_numeric_types_change_nothing(iris):
+    X, y, E = iris
+    plain = fit(X, y, E, random_state=0)
+    typed = fit(X, y, E, random_state=0, feature_types=["numeric"] * 4)
+    assert typed.encoding is None and typed.dnf.encoding is None
+    assert typed.dnf.rules == plain.dnf.rules and typed.dnf.n_literals == plain.dnf.n_literals
+
+
+def test_categorical_rules(categorical):
+    from cfire import format_rules
+    X, y, E, types = categorical
+    cf = fit(X, y, E, random_state=0, max_dt_depth=5, feature_types=types)
+    groups = cf.encoding.groups()
+    # itemsets hold the indicators of a column all or none
+    for coll in cf.frequent_nodes:
+        for node in coll.nodes:
+            items = set(int(i) for i in node.itemset)
+            assert all(set(g) <= items or not set(g) & items for g in groups)
+    assert np.array_equal(cf.dnf.predict(X), y)  # model-space input; the known rule is recovered
+    text = format_rules(cf.dnf, feature_names=["x0", "colour", "b", "x3"])
+    assert any("colour not in {0, 3}" in r for r in text[1])
+    # literals on the indicators of colour count once per rule
+    assert cf.dnf.n_literals == sum(len({int(cf.encoding.source[d]) for d, _ in r}) for c in cf.dnf.rules for r in c)
+
+
+def test_categorical_unseen_value(categorical):
+    X, y, E, types = categorical
+    cf = fit(X, y, E, random_state=0, max_dt_depth=5, feature_types=types)
+    # value 7 was not seen: all indicators 0; it satisfies only "not in S" literals, so no crash, a defined answer
+    pred = cf.dnf.predict(np.array([[1.0, 7.0, 0.0, 0.0]]))
+    enc_row = cf.encoding.transform(np.array([[1.0, 7.0, 0.0, 0.0]]))
+    assert pred.shape == (1,) and enc_row[0, 1:5].sum() == 0
+
+
+def test_categorical_serialisation_prune_select(categorical):
+    import json
+    from cfire import prune, CFIRESelect
+    X, y, E, types = categorical
+    cf = fit(X, y, E, random_state=0, max_dt_depth=5, feature_types=types)
+    d = json.loads(json.dumps(cf.dnf.to_dict()))
+    assert d["format"] == "cfire.DNFClassifier/2" and d["encoding"]["feature_types"] == types
+    back = DNFClassifier.from_dict(d)
+    assert back.encoding == cf.encoding and np.array_equal(back.predict(X), cf.dnf.predict(X))
+    pruned = prune(cf.dnf, X, y, mode="safe")
+    assert pruned.dnf.encoding == cf.encoding and np.array_equal(pruned.dnf.predict(X), cf.dnf.predict(X))
+    sel = CFIRESelect({"e": E}, random_state=0, max_dt_depth=5, feature_types=types)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        sel.fit(X, y)
+    assert np.array_equal(sel(X), cf.dnf.predict(X))
+
+
+def test_explanations_must_match_data(iris):
+    X, y, E = iris
+    with pytest.raises(ValueError, match="shape"):
+        fit(X, y, E[:, :3])

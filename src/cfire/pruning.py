@@ -98,7 +98,8 @@ def prune(dnf, X, Y, mode: str = "safe", tolerance: float = 0.05, max_threshold:
     mode "best": raise the threshold 0, 1, ..., max_threshold and keep the last rule model whose accuracy on the fit
     data stays at or above (1 - tolerance) times the original accuracy (the search of the pruning paper; tolerance
     0.05 there). Wins are counted once, on the original rule model.
-    X, Y: fit data and the black box's predictions (the data the rule model was fitted on)."""
+    X, Y: fit data and the black box's predictions (the data the rule model was fitted on), in the black box's input
+    columns; the pruned model keeps the rule model's encoding."""
     from copy import deepcopy
     from .rules import DNFClassifier
     if mode not in ("safe", "best"):
@@ -111,7 +112,7 @@ def prune(dnf, X, Y, mode: str = "safe", tolerance: float = 0.05, max_threshold:
 
     def candidate(threshold):
         to_remove = decide_by_wins(metrics, win_threshold=threshold).to_remove
-        model = DNFClassifier(prune_rules(original.rules, to_remove), "accuracy")
+        model = DNFClassifier(prune_rules(original.rules, to_remove), "accuracy", encoding=original.encoding)
         model.compute_rule_performance(X, Y)
         return model, to_remove
 

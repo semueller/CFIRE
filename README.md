@@ -39,6 +39,18 @@ pruned = prune(cf.dnf, X_fit, Y_fit, mode="best", tolerance=0.05)   # mode="safe
 pruned.dnf, pruned.removed, pruned.before, pruned.after
 ```
 
+Categorical input columns (category codes, binary columns included): pass `feature_types`, one of "numeric" /
+"categorical" per column of the black box's input. CFIRE one-hot encodes the categorical columns internally (one
+indicator per value seen in the fit data); the rule model keeps the encoding and takes the black box's input.
+
+```python
+cf = CFIRE(None, E, None, random_state=0, feature_types=["numeric", "categorical", "numeric"])
+cf.fit(X_fit, Y_fit)
+cf.dnf.predict(X_new)          # same input columns as X_fit
+from cfire import format_rules
+format_rules(cf.dnf, feature_names=["age", "colour", "income"])   # e.g. "age >= 0.31 and colour not in {0, 3}"
+```
+
 Settings (see the docstring of `CFIRE`): relevance threshold of the binarisation (default 0.01 of the largest
 attribution per sample; top-k variants in `cfire.binarise`), frequency threshold of the itemsets (default 0.01),
 depth of the rule trees (adaptive by default), `random_state` for the trees.

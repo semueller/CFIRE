@@ -27,8 +27,14 @@ from copy import deepcopy
 
 
 class DNFClassifier:
-    def __init__(self, rules: list[list[list[tuple[int, tuple[float, float]]]]], tie_break="first"):
+    def __init__(self, rules: list[list[list[tuple[int, tuple[float, float]]]]], tie_break="first", encoding=None):
+        """
+        :param encoding: optional `cfire.encoding.Encoding`. The rules then refer to the encoded columns (indicators
+            of categorical input columns); predict, describe and compute_rule_performance take the input columns and
+            encode them first. None: the rules refer to the input columns directly.
+        """
         # rule format: dimension, interval -> tuple(dimension, tuple(lower_limit, upper_limit))
+        self.encoding = None if encoding is None or encoding.is_identity else encoding
         self.n_classes = len(rules)
         self.rules = rules
         #self.rules: List[List[List[Tuple[int, Tuple[float, float]]]]]
@@ -50,6 +56,9 @@ class DNFClassifier:
     def __call__(self, samples, explain=False):
         return self.predict(samples, explain=explain)
 
+    def _encode(self, samples):
+        return samples if self.encoding is None else self.encoding.transform(samples)
+
     def __iter__(self):
         self.current = -1
         return self
@@ -67,8 +76,9 @@ class DNFClassifier:
     # ---- serialisation ------------------------------------------------------------------------------------------
     def to_dict(self, feature_names=None) -> dict:
         """JSON-serialisable form: per class a list of rules (conjunctions of [feature, lower, upper]; None = unbounded,
-        a literal holds for lower < x <= upper) and per rule its statistics on the data the model was scored on
-        (the tie-break "accuracy" uses the rule's precision)."""
+        a literal holds for lower <= x <= upper) and per rule its statistics on the data the model was scored on
+        (the tie-break "accuracy" uses the rule's precision). With an encoding, features are encoded columns and the
+        encoding is stored (format version 2)."""
         def bound(v):
             v = float(v)
             return None if not np.isfinite(v) else v
@@ -84,6 +94,9 @@ class DNFClassifier:
                                   {"precision": float(st["accuracy"]), "recall": float(st["recall"]), "f1": float(st["f1"])})
             classes.append({"class": c, "rules": rules, "rule_stats": rule_stats})
         out = {"format": "cfire.DNFClassifier/1", "tie_break": self.tie_break, "classes": classes}
+        if self.encoding is not None:
+            out["format"] = "cfire.DNFClassifier/2"
+            out["encoding"] = self.encoding.to_dict()
         if feature_names is not None:
             out["feature_names"] = list(map(str, feature_names))
         return out
@@ -95,7 +108,11 @@ class DNFClassifier:
 
         rules = [[[(int(f), (bound(lo, -np.inf), bound(hi, np.inf))) for f, lo, hi in rule] for rule in c["rules"]]
                  for c in d["classes"]]
-        dnf = cls(rules, d.get("tie_break", "first"))
+        encoding = None
+        if d.get("encoding") is not None:
+            from .encoding import Encoding
+            encoding = Encoding.from_dict(d["encoding"])
+        dnf = cls(rules, d.get("tie_break", "first"), encoding=encoding)
         for c, cdict in enumerate(d["classes"]):
             perf = {}
             for clause, st in zip(dnf.rules[c], cdict.get("rule_stats", [])):
@@ -123,10 +140,15 @@ class DNFClassifier:
         return
 
     def __comp_n_literals(self) -> int:
+        """literals summed over all rules; with an encoding, literals on the indicators of one categorical input column
+        count as one (one condition on that feature)"""
         n_literals = 0
         for c in range(self.n_classes):
             c_dnf = self.rules[c]
-            n_literals += sum([len(term) for term in c_dnf])
+            if self.encoding is None:
+                n_literals += sum([len(term) for term in c_dnf])
+            else:
+                n_literals += sum([len({int(self.encoding.source[d]) for d, _ in term}) for term in c_dnf])
         return n_literals
 
     def unique_literals(self) -> set[tuple[int, tuple[float, float]]]:
@@ -207,6 +229,7 @@ class DNFClassifier:
     def compute_rule_performance(self, X, Y):
         # compute performance statistics [accuracy, prec, recall, f1] for every single term of each class
         # if then our DNF predicts multiple classes, predict class of rules with "best" performance
+        X = self._encode(X)
         for c in range(self.n_classes):
             # Xc = X[Y == c]
             # Xother = X[Y != c]
@@ -370,6 +393,7 @@ class DNFClassifier:
         return prediction
 
     def predict(self, samples, explain=False):
+        samples = self._encode(samples)
         predictions = []
         for sample in samples:
             predictions.append(self.__predict_sample(sample, explain))
@@ -393,6 +417,7 @@ class DNFClassifier:
         return applicable_by_clause
 
     def describe(self, samples):
+        samples = self._encode(samples)
         dscriptions = []
         for sample in samples:
             dscriptions.append(self.__describe_sample(sample))

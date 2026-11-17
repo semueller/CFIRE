@@ -14,6 +14,7 @@ from .rules import DNFClassifier
 from .mining import gely_discriminatory, ItemsetNode
 from .cover import _comp_greedy_cover
 from .binarise import binarise_threshold, relevance_scores
+from .encoding import Encoding
 
 from typing import NamedTuple, Optional
 
@@ -28,7 +29,7 @@ class CFIRE:
 
     def __init__(self, localexplainer_fn, explanations: Optional[numpy.ndarray], inference_fn, expl_binarization_fn=None,
                  frequency_threshold=0.01, composition_strategy=_comp_greedy_cover, max_dt_depth=None, meta_data=None,
-                 random_state=None, item_order="relevance"):
+                 random_state=None, item_order="relevance", feature_types=None):
         """
         :param expl_binarization_fn: maps the explanation matrix (n_samples, n_features) to a binary matrix of relevant
             features; default: `binarise_threshold` (row-wise max-abs normalisation, values below 0.01 are not relevant).
@@ -49,10 +50,18 @@ class CFIRE:
             The closed itemsets are the same either way, but each candidate's tree is fitted on the samples passed
             down from its parent node, which depends on the enumeration order.
             AUDIT: effect not yet measured systematically; remove if it makes no measurable difference.
+        :param feature_types: optional list with "numeric" or "categorical" per column of the data passed to fit (the
+            black box's input). Categorical columns (category codes; binary columns included) are one-hot encoded
+            internally, one indicator per value observed in the fit data (`cfire.encoding`); the relevance of such a
+            column (binarised explanation, relevance scores) is copied to all of its indicators, so mined itemsets
+            contain a column's indicators all or none. The rule model stores the encoding and takes the input columns.
+            None or all "numeric": no encoding, behaviour unchanged.
         """
         if item_order not in ("relevance", "natural"):
             raise ValueError(f"item_order must be 'relevance' or 'natural', got {item_order!r}")
         self._item_order = item_order
+        self._feature_types = None if feature_types is None else list(feature_types)
+        self.encoding: Optional[Encoding] = None  # set in fit if feature_types has categorical columns
         # MISSING:
         # - behavior of grid search during rule fitting (min/max_depth),
         # - inference strategy for DNF
@@ -124,8 +133,13 @@ class CFIRE:
 
         self._compute_times['_calc_explanations'] = time.time() - time_expl
 
+        if self._explanations.shape != self._X_input.shape:
+            raise ValueError(f"explanations have shape {self._explanations.shape}, data {self._X_input.shape}")
         time_bin_exp = time.time()
+        # binarised in the black box's input space, then copied to the indicators of categorical columns
         self._binarized_explanations = self._expl_binarization_fn(self._explanations)
+        if self.encoding is not None:
+            self._binarized_explanations = self.encoding.expand(self._binarized_explanations)
         self._compute_times['expl_binarization_fn'] = time.time() - time_bin_exp
         return
 
@@ -144,6 +158,8 @@ class CFIRE:
                 if self._expl_binarization_fn is not binarise_threshold:
                     raise ValueError('item_order="relevance" needs the default binariser; use item_order="natural"')
                 scores = relevance_scores(np.asarray(self._explanations)[mask_targets])
+                if self.encoding is not None:
+                    scores = self.encoding.expand(scores)
                 item_order = np.argsort(np.sum(scores, 0)).squeeze()[::-1]  # as cfire.py (2025), gely_sort_items
             else:
                 item_order = np.arange(self._data.shape[1])
@@ -216,9 +232,16 @@ class CFIRE:
         DNF = self.__merge_single_class_dnfs_multiclass_dnf(_DNF)
         if DNF.tie_break == "accuracy": # TODO: we check for accuracy here and hardcode it as accuracy?
             DNF.compute_rule_performance(self._data, self._labels)
+        if self.encoding is not None:  # after scoring: self._data is already encoded
+            DNF = self.__with_encoding(DNF)
         self._compute_times['_compose_rule_model'] = time.time() - _start_time
         self.dnf = DNF
         return
+
+    def __with_encoding(self, dnf):
+        out = DNFClassifier(dnf.rules, dnf.tie_break, encoding=self.encoding)
+        out.rule_performances = dnf.rule_performances
+        return out
 
     def __merge_single_class_dnfs_multiclass_dnf(self, dnfs):
         rules = [dnf.rules[0] for dnf in dnfs]  # 1 or 0? # TODO: we ignore single class dnf tie breaker, do we need it at any point?
@@ -234,7 +257,12 @@ class CFIRE:
             raise Exception('CFIRE is already fit')
         if save_interim:
             raise NotImplementedError
-        self._data = X
+        self._X_input = np.asarray(X)
+        if self._feature_types is not None:
+            enc = Encoding.fit(X, self._feature_types)
+            self.encoding = None if enc.is_identity else enc
+        # the miner and the rule trees work on the encoded columns
+        self._data = X if self.encoding is None else self.encoding.transform(X)
         self._labels = Y
 
         # get explanations / feature importances (self._binarized_explanations, self._explanations)
