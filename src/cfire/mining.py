@@ -698,7 +698,7 @@ def list_closed_no_rules(C, N, i, t, D, I, T, results, closure=None, parent: Ite
 def list_closed_dscriminatory(C, N, i, t, D, I, T, results,
                               data_target, data_other, closure=None, parent: ItemsetNode=None,
                               subset_test=False, direction=None, model_callable=None, dt_kwargs=None,
-                              candidate_samples="passed"):
+                              candidate_samples="passed", full_target=None):
     # TODO
     #  subset_test ->
     #  Q: should we filter data according to support and even put data from other nodes into other?
@@ -751,6 +751,9 @@ def list_closed_dscriminatory(C, N, i, t, D, I, T, results,
             # rules are computed on all samples of the target class passed to this node, not only the itemset's support
             # (candidate_samples="support": on the itemset's support among the passed samples, CFIRE paper Step 4)
             _enriched_data_target = _data_target if candidate_samples == "support" else data_target
+            if full_target is not None and len(full_target) > 0:  # samples with every item relevant support every itemset
+                _enriched_data_target = full_target if len(_enriched_data_target) == 0 else \
+                    np.vstack([_enriched_data_target, full_target])
             _enriched_data_other = data_other
 
             newNode.compute_initial_rules(_enriched_data_target)
@@ -783,7 +786,7 @@ def list_closed_dscriminatory(C, N, i, t, D, I, T, results,
                             t, _D, I, T, results, _data_target, data_other,
                                           closure, parent=newNode, direction='left',
                                           subset_test=subset_test, dt_kwargs=dt_kwargs,
-                                          candidate_samples=candidate_samples)
+                                          candidate_samples=candidate_samples, full_target=full_target)
 
         idx = np.argwhere(I == _i_prime).squeeze()+1  # {k in I\C: k > _i_prime}
         Y = I[idx:]  # not out of bounds, just empty
@@ -801,7 +804,7 @@ def list_closed_dscriminatory(C, N, i, t, D, I, T, results,
                         _D_right, I, T, results, _data_right, data_other,
                                       closure, parent=newNode_pp, direction='right',
                                       subset_test=subset_test, dt_kwargs=dt_kwargs,
-                                      candidate_samples=candidate_samples)
+                                      candidate_samples=candidate_samples, full_target=full_target)
 
     return
 
@@ -824,12 +827,14 @@ def gely_discriminatory(B, threshold, X_target, X_other, item_order, remove_copm
         # print(f'threshold set to {threshold}')
 
     n_full_transactions = None
+    _keep_rows = np.ones(B.shape[0], dtype=bool)
     if remove_copmlete_transactions and not np.all(B==1):  # remove rows that are all 1s
         n_I = B.shape[1]
         _T_sizes = np.sum(B, 1)
         unfull_transactions = _T_sizes < n_I
         D = B[unfull_transactions]
         if np.sum(D) > 0:
+            _keep_rows = unfull_transactions
             n_full_transactions = np.sum(-1*(unfull_transactions-1))
             # print(f"removed {n_full_transactions} transactions that contained all items")
             if threshold < 1:
@@ -871,6 +876,13 @@ def gely_discriminatory(B, threshold, X_target, X_other, item_order, remove_copm
 
     closure = lambda X: _ti(_it(X, _D), _D)
     _fcis = []
+    # positions in D (support_idxs) index the samples passed down; D leaves out the transactions containing all items,
+    # so with subset_test the samples are aligned with D and those samples are added to every candidate's fit data
+    # (they support every itemset).
+    if subset_test and not _keep_rows.all():
+        _root_target, _full_target = X_target[_keep_rows], X_target[~_keep_rows]
+    else:
+        _root_target, _full_target = X_target, None
     import numbers
     if isinstance(I, numbers.Number):
         I = [I]
@@ -891,10 +903,10 @@ def gely_discriminatory(B, threshold, X_target, X_other, item_order, remove_copm
             root_node = ItemsetNode(None, I, rel_items_global=OrderedSet(I), n_samples_global=len(X_target))
             list_closed_dscriminatory(
                 C=OrderedSet(), N=OrderedSet(), i=I[0], t=_t, D=_D, I=I, T=T,
-                results=_fcis, data_target=X_target.copy(), data_other=X_other, parent=root_node,
+                results=_fcis, data_target=_root_target.copy(), data_other=X_other, parent=root_node,
                 closure=closure, subset_test=subset_test, model_callable=model_callable,
                 dt_kwargs=dt_kwargs, # passed the dt depth
-                candidate_samples=candidate_samples
+                candidate_samples=candidate_samples, full_target=_full_target
             )
     except RecursionError as e:
         if hasattr(e, 'message'):
@@ -917,9 +929,9 @@ def gely_discriminatory(B, threshold, X_target, X_other, item_order, remove_copm
                                                 rel_items_global=OrderedSet(I), n_samples_global=len(X_target))
                         list_closed_dscriminatory(
                             C=OrderedSet(), N=OrderedSet(), i=I[0], t=_t, D=_D, I=I, T=T,
-                            results=_fcis, data_target=X_target.copy(), data_other=X_other, parent=root_node,
+                            results=_fcis, data_target=_root_target.copy(), data_other=X_other, parent=root_node,
                             closure=closure, subset_test=subset_test, model_callable=model_callable,
-                            dt_kwargs=dt_kwargs, candidate_samples=candidate_samples
+                            dt_kwargs=dt_kwargs, candidate_samples=candidate_samples, full_target=_full_target
                         )
 
     # remove data from nodes for saving; put data in root_node

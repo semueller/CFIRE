@@ -285,6 +285,25 @@ def test_redundant_removal_in_fit(iris):
     assert all(tuple(r) in reduced.dnf.rule_performances[c] for c, rs in enumerate(reduced.dnf.rules) for r in rs)
 
 
+def test_full_transactions_keep_samples_aligned():
+    """a sample marking every feature relevant is dropped from the miner's transactions; the samples passed down must
+    stay aligned with them, and it belongs to every itemset's support"""
+    # class 0: row 0 marks both features (x0 = 5), rows 1-2 only feature 1 (x0 = 30, 40), rows 3-4 only feature 0
+    # (x0 = 1, 2); class 1 far away
+    X = np.array([[5., 0.], [30., 0.], [40., 0.], [1., 0.], [2., 0.]] + [[1000., 1000.]] * 5)
+    y = np.array([0] * 5 + [1] * 5)
+    E = np.array([[1, 1], [0, 1], [0, 1], [1, 0], [1, 0]] + [[1, 0]] * 5, dtype=float)
+    cf = CFIRE(None, E, None, random_state=0, item_order="natural", candidate_samples="support",
+               remove_redundant_rules=False)
+    cf._verbose = False
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        cf.fit(X, y)
+    node = [n for n in cf.frequent_nodes[0].nodes if sorted(int(i) for i in n.itemset) == [0]][0]
+    (dim, (lo, hi)), = node.simple_dnf.rules[0][0]
+    assert dim == 0 and (lo, hi) == (1.0, 5.0)  # support rows 3, 4 plus the full row 0
+
+
 def test_candidate_samples_variants(iris):
     X, y, E = iris
     for v in ("support", "all", "passed", "passed_fixed"):
