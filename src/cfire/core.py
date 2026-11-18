@@ -29,7 +29,7 @@ class CFIRE:
 
     def __init__(self, localexplainer_fn, explanations: Optional[numpy.ndarray], inference_fn, expl_binarization_fn=None,
                  frequency_threshold=0.01, composition_strategy=_comp_greedy_cover, max_dt_depth=None, meta_data=None,
-                 random_state=None, item_order="relevance", feature_types=None):
+                 random_state=None, item_order="relevance", feature_types=None, remove_redundant_rules=True):
         """
         :param expl_binarization_fn: maps the explanation matrix (n_samples, n_features) to a binary matrix of relevant
             features; default: `binarise_threshold` (row-wise max-abs normalisation, values below 0.01 are not relevant).
@@ -56,10 +56,17 @@ class CFIRE:
             column (binarised explanation, relevance scores) is copied to all of its indicators, so mined itemsets
             contain a column's indicators all or none. The rule model stores the encoding and takes the input columns.
             None or all "numeric": no encoding, behaviour unchanged.
+        :param remove_redundant_rules: after the greedy cover, remove rules that are redundant on the fit data and
+            merge rules (`DNFClassifier.remove_empirically_redundant_rules`); fit-data predictions with tie-break
+            "first" stay the same. True (default): as the CFIRE paper (2025), whose reported rule models went through
+            this step (cfire_experiments/03_eval_rules.py at tag wcxai2025). The removed rules are kept in
+            `removed_redundant_rules` as (class, rule).
         """
         if item_order not in ("relevance", "natural"):
             raise ValueError(f"item_order must be 'relevance' or 'natural', got {item_order!r}")
         self._item_order = item_order
+        self._remove_redundant_rules = bool(remove_redundant_rules)
+        self.removed_redundant_rules: list = []
         self._feature_types = None if feature_types is None else list(feature_types)
         self.encoding: Optional[Encoding] = None  # set in fit if feature_types has categorical columns
         # MISSING:
@@ -230,7 +237,9 @@ class CFIRE:
             _DNF.append(class_dnf)
 
         DNF = self.__merge_single_class_dnfs_multiclass_dnf(_DNF)
-        if DNF.tie_break == "accuracy": # TODO: we check for accuracy here and hardcode it as accuracy?
+        if self._remove_redundant_rules:
+            self.removed_redundant_rules = DNF.remove_empirically_redundant_rules(self._data)
+        if DNF.tie_break == "accuracy":
             DNF.compute_rule_performance(self._data, self._labels)
         if self.encoding is not None:  # after scoring: self._data is already encoded
             DNF = self.__with_encoding(DNF)

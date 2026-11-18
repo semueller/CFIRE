@@ -53,7 +53,9 @@ format_rules(cf.dnf, feature_names=["age", "colour", "income"])   # e.g. "age >=
 
 Settings (see the docstring of `CFIRE`): relevance threshold of the binarisation (default 0.01 of the largest
 attribution per sample; top-k variants in `cfire.binarise`), frequency threshold of the itemsets (default 0.01),
-depth of the rule trees (adaptive by default), `random_state` for the trees.
+depth of the rule trees (adaptive by default), `random_state` for the trees, `remove_redundant_rules` (default on,
+as in the first paper: after the greedy cover, rules that are redundant on the fit data are removed and rules are
+merged; fit-data predictions stay the same).
 
 ## Paper versions
 

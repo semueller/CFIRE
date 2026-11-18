@@ -24,6 +24,72 @@ import numpy as np
 from copy import deepcopy
 
 
+def merge_rules(a, b):
+    """Merge two rules (conjunctions of (dim, (lo, hi))) of one class if one can replace both; port of
+    lxg.models.merge_rules (CFIRE paper 2025, tag wcxai2025), behaviour unchanged.
+    Returns (merged, None) if mergeable, else (a, b).
+    - same features: identical -> a; one contains the other in every feature -> the containing one; equal in all but
+      one feature where the intervals overlap -> one rule with the union of the two intervals there
+    - features of one rule a subset of the other's: the shorter rule, if its intervals contain the longer rule's
+      intervals on the shared features
+    - otherwise not mergeable"""
+
+    def get_dims(r):
+        return set([t[0] for t in r])
+
+    def overlap_not_contain(i1, i2):
+        i1, i2 = sorted([i1, i2], key=lambda x: (x[0], x[1]))
+        if i1[1] < i2[0]: return False
+        if i1[0] <= i2[0] and i1[1] >= i2[0] and i1[1] < i2[1]: return True
+        return False
+
+    def contains(i1, i2):
+        return i1[0] <= i2[0] and i2[1] <= i1[1]
+
+    a = sorted(a, key=lambda t: t[0])
+    b = sorted(b, key=lambda t: t[0])
+    da = get_dims(a)
+    db = get_dims(b)
+
+    if not (da <= db or db <= da):  # rules use different dims
+        return a, b
+
+    if da == db:
+        new_rule = []
+        if np.all([ta == tb for ta, tb in zip(a, b)]):  # identical
+            return a, None
+        _a_contains_b = np.array([contains(ta[1], tb[1]) for ta, tb in zip(a, b)])
+        _b_contains_a = np.array([contains(tb[1], ta[1]) for ta, tb in zip(a, b)])
+        if np.all(_a_contains_b):
+            return a, None
+        if np.all(_b_contains_a):
+            return b, None
+        _eq = np.logical_and(_a_contains_b, _b_contains_a)
+        if sum(_eq) == len(_eq) - 1:
+            for i, (ta, tb) in enumerate(zip(a, b)):
+                if _a_contains_b[i]:
+                    new_rule.append(ta)
+                elif _b_contains_a[i]:
+                    new_rule.append(tb)
+                elif overlap_not_contain(ta[1], tb[1]):
+                    new_rule.append((ta[0], (min(ta[1][0], tb[1][0]), max(ta[1][1], tb[1][1]))))
+                else:  # no overlap: keep both
+                    return a, b
+            return new_rule, None
+        return a, b
+
+    if len(db) < len(da):
+        a, b = b, a
+        da, db = db, da
+
+    # a is the shorter, more general rule: mergeable if its intervals contain b's on a's features
+    def term_for_dim(terms, dim):
+        for t in terms:
+            if t[0] == dim: return t
+        return None
+    if not all(contains(ta[1], term_for_dim(b, ta[0])[1]) for ta, tb in zip(a, b)):
+        return a, b
+    return a, None
 
 
 class DNFClassifier:
@@ -138,6 +204,93 @@ class DNFClassifier:
         self.n_literals = self.__comp_n_literals()
         self.n_rules = self.__comp_n_rules()
         return
+
+    def remove_empirically_redundant_rules(self, X) -> list:
+        """Remove rules that are redundant on the samples X; port of lxg.models.DNFClassifier
+        .remove_empirically_redundant_rules with min_complexity=False, the setting of the CFIRE paper (2025), whose
+        reported rule models went through this step after the greedy cover (cfire_experiments/03_eval_rules.py at
+        tag wcxai2025). Behaviour unchanged, including that the last rule of a class is not checked for empty support.
+
+        Per class, with the support of a rule = the samples of X it matches (any label):
+        - a rule without support is removed
+        - a rule whose support is a strict subset of another rule's support is removed
+        - of two rules with equal support, the one whose features are a subset of the other's is removed (both are
+          kept if neither feature set contains the other)
+        then rules are merged (`simplify_merge_rules`). Predictions on X with tie-break "first" must not change
+        (checked; RuntimeError otherwise). X: rows in the rule model's columns (encoded columns if the rules refer to
+        them; this method does not encode). Rule statistics are reset; recompute them with compute_rule_performance.
+        Returns the removed rules as (class, rule)."""
+        _tie_break = self.tie_break
+        self.tie_break = "first"
+        pred_before = self.__predict_raw(X)
+        reduced_rules, removed = [], []
+        for c, class_dnf in enumerate(self.rules):
+            supports = [set(np.flatnonzero([self.__clause_match_sample(x, clause) for x in X])) for clause in class_dnf]
+            rules_c = deepcopy(class_dnf)
+            removed_clause = True
+            while removed_clause:
+                removed_clause = False
+                for i in range(len(rules_c) - 1):
+                    s1 = supports[i]
+                    if len(s1) == 0:
+                        removed.append((c, rules_c[i])); del rules_c[i]; del supports[i]
+                        removed_clause = True; break
+                    for j in range(i + 1, len(rules_c)):
+                        s2 = supports[j]
+                        if s1 == s2:
+                            dims1 = set(int(t[0]) for t in rules_c[i])
+                            dims2 = set(int(t[0]) for t in rules_c[j])
+                            if dims1 <= dims2:  # rule j more specific
+                                removed.append((c, rules_c[i])); del rules_c[i]; del supports[i]
+                                removed_clause = True; break
+                            elif dims2 <= dims1:
+                                removed.append((c, rules_c[j])); del rules_c[j]; del supports[j]
+                                removed_clause = True; break
+                        elif s1 < s2:
+                            removed.append((c, rules_c[i])); del rules_c[i]; del supports[i]
+                            removed_clause = True; break
+                        elif s2 < s1:
+                            removed.append((c, rules_c[j])); del rules_c[j]; del supports[j]
+                            removed_clause = True; break
+                    if removed_clause:
+                        break
+            reduced_rules.append(rules_c)
+        self.__set_rules(reduced_rules)
+        self.simplify_merge_rules()
+        self.rule_performances = {c: {} for c in range(self.n_classes)}
+        if not np.array_equal(pred_before, self.__predict_raw(X)):
+            raise RuntimeError("remove_empirically_redundant_rules changed predictions on X")
+        self.tie_break = _tie_break
+        return removed
+
+    def simplify_merge_rules(self):
+        """merge pairs of rules of a class with `merge_rules` until no pair is mergeable; port of
+        lxg.models.DNFClassifier.simplify_merge_rules (CFIRE paper 2025)"""
+        new_rules = []
+        for cdnf in self.rules:
+            new_cdnf = list(cdnf)
+            merged = True
+            while merged:
+                merged = False
+                for i in range(len(new_cdnf)):
+                    r1 = new_cdnf[i]
+                    for j in range(i + 1, len(new_cdnf)):
+                        r2 = new_cdnf[j]
+                        m1, m2 = merge_rules(a=r1, b=r2)
+                        if m2 is None:
+                            new_cdnf.remove(r1)
+                            new_cdnf.remove(r2)
+                            new_cdnf.append(m1)
+                            merged = True
+                            break
+                    if merged:
+                        break
+            new_rules.append(new_cdnf)
+        self.__set_rules(new_rules)
+
+    def __predict_raw(self, X):
+        """predict on rows already in the rules' columns (no encoding)"""
+        return np.array([self.__predict_sample(x) for x in X])
 
     def __comp_n_literals(self) -> int:
         """literals summed over all rules; with an encoding, literals on the indicators of one categorical input column

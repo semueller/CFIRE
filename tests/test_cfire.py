@@ -248,3 +248,38 @@ def test_explanations_must_match_data(iris):
     X, y, E = iris
     with pytest.raises(ValueError, match="shape"):
         fit(X, y, E[:, :3])
+
+
+# ---- redundant-rule removal after the greedy cover (CFIRE paper 2025) ----------------------------------------------
+def test_remove_empirically_redundant_rules():
+    X = np.array([[0.0], [1.0], [2.0], [3.0]])
+    inf = np.inf
+    rules = [[[(0, (-inf, 1.5))],             # support {0, 1}
+              [(0, (-inf, 0.5))],             # {0}: strict subset of the first -> removed
+              [(0, (10.0, 11.0))],            # no support -> removed
+              [(0, (2.5, inf))]],             # {3}; last rule of the class (never checked for empty support)
+             [[(0, (1.5, 2.5))]]]
+    d = DNFClassifier(rules, "accuracy")
+    before = DNFClassifier(rules, "first").predict(X)
+    removed = d.remove_empirically_redundant_rules(X)
+    assert {(c, tuple(r)) for c, r in removed} == {(0, ((0, (-inf, 0.5)),)), (0, ((0, (10.0, 11.0)),))}
+    assert d.n_rules == 3 and np.array_equal(DNFClassifier(d.rules, "first").predict(X), before)
+    assert d.tie_break == "accuracy"
+
+
+def test_merge_rules():
+    from cfire.rules import merge_rules
+    a, b = [(0, (0.0, 1.0)), (1, (0.0, 1.0))], [(0, (0.5, 2.0)), (1, (0.0, 1.0))]
+    assert merge_rules(a, b) == ([(0, (0.0, 2.0)), (1, (0.0, 1.0))], None)   # equal but one feature, overlap: union
+    assert merge_rules([(0, (0.0, 3.0))], b) == ([(0, (0.0, 3.0))], None)    # shorter rule contains the longer one
+    assert merge_rules([(0, (0.0, 1.0))], [(1, (0.0, 1.0))])[1] is not None  # different features: not merged
+
+
+def test_redundant_removal_in_fit(iris):
+    X, y, E = iris
+    plain = fit(X, y, E, random_state=0, remove_redundant_rules=False)
+    reduced = fit(X, y, E, random_state=0)
+    assert reduced.dnf.n_rules <= plain.dnf.n_rules  # removed rules are listed, merged ones are not
+    first = lambda d: DNFClassifier(d.rules, "first").predict(X)
+    assert np.array_equal(first(reduced.dnf), first(plain.dnf))  # fit-data predictions (tie-break first) unchanged
+    assert all(tuple(r) in reduced.dnf.rule_performances[c] for c, rs in enumerate(reduced.dnf.rules) for r in rs)
