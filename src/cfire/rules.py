@@ -188,12 +188,16 @@ class DNFClassifier:
         return dnf
 
     def purge_dummy_rules(self):
+        """remove placeholder literals (-1, (nan, nan)); a rule that consisted only of placeholders (a candidate
+        without a rule for its class) is removed, since an empty conjunction would match every sample"""
         purged_rules = []
         for class_rules in self.rules:
             purged_class = []
             for term in class_rules:
-                term = list(filter(lambda x: x != (-1, (np.nan, np.nan)), term))
-                purged_class.append(term)
+                kept = list(filter(lambda x: x != (-1, (np.nan, np.nan)), term))
+                if len(kept) == 0 and len(term) > 0:
+                    continue
+                purged_class.append(kept)
             purged_rules.append(purged_class)
         self.rules = purged_rules
 

@@ -310,3 +310,14 @@ def test_candidate_samples_variants(iris):
         assert np.mean(fit(X, y, E, random_state=0, candidate_samples=v)(X) == y) > 0.5
     with pytest.raises(ValueError):
         CFIRE(None, E, None, candidate_samples="parent")
+
+
+def test_placeholder_rule_is_removed_not_emptied():
+    """a candidate without a rule for its class is stored as the placeholder (-1, (nan, nan)); it must not become an
+    empty rule (which would match every sample)"""
+    X = np.array([[0.0], [5.0]])
+    d = DNFClassifier([[[(-1, (np.nan, np.nan))], [(0, (-1.0, 1.0))]], [[(0, (4.0, 6.0))]]])
+    assert d.rules == [[[(0, (-1.0, 1.0))]], [[(0, (4.0, 6.0))]]]
+    assert d.predict(np.array([[0.0], [5.0], [10.0]])).tolist() == [0, 1, -1]
+    only = DNFClassifier([[[(-1, (np.nan, np.nan))]], [[(0, (4.0, 6.0))]]])
+    assert only.rules[0] == [] and only.predict(X).tolist() == [-1, 1]
