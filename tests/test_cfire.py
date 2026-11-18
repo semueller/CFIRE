@@ -283,3 +283,11 @@ def test_redundant_removal_in_fit(iris):
     first = lambda d: DNFClassifier(d.rules, "first").predict(X)
     assert np.array_equal(first(reduced.dnf), first(plain.dnf))  # fit-data predictions (tie-break first) unchanged
     assert all(tuple(r) in reduced.dnf.rule_performances[c] for c, rs in enumerate(reduced.dnf.rules) for r in rs)
+
+
+def test_candidate_samples_variants(iris):
+    X, y, E = iris
+    for v in ("support", "all", "passed", "passed_fixed"):
+        assert np.mean(fit(X, y, E, random_state=0, candidate_samples=v)(X) == y) > 0.5
+    with pytest.raises(ValueError):
+        CFIRE(None, E, None, candidate_samples="parent")

@@ -697,7 +697,8 @@ def list_closed_no_rules(C, N, i, t, D, I, T, results, closure=None, parent: Ite
 
 def list_closed_dscriminatory(C, N, i, t, D, I, T, results,
                               data_target, data_other, closure=None, parent: ItemsetNode=None,
-                              subset_test=False, direction=None, model_callable=None, dt_kwargs=None):
+                              subset_test=False, direction=None, model_callable=None, dt_kwargs=None,
+                              candidate_samples="passed"):
     # TODO
     #  subset_test ->
     #  Q: should we filter data according to support and even put data from other nodes into other?
@@ -748,7 +749,8 @@ def list_closed_dscriminatory(C, N, i, t, D, I, T, results,
 
         if is_frequent:
             # rules are computed on all samples of the target class passed to this node, not only the itemset's support
-            _enriched_data_target = data_target
+            # (candidate_samples="support": on the itemset's support among the passed samples, CFIRE paper Step 4)
+            _enriched_data_target = _data_target if candidate_samples == "support" else data_target
             _enriched_data_other = data_other
 
             newNode.compute_initial_rules(_enriched_data_target)
@@ -780,7 +782,8 @@ def list_closed_dscriminatory(C, N, i, t, D, I, T, results,
                 list_closed_dscriminatory(_C_prime, N, _next_i,  # What if min(X) == max(I)?
                             t, _D, I, T, results, _data_target, data_other,
                                           closure, parent=newNode, direction='left',
-                                          subset_test=subset_test, dt_kwargs=dt_kwargs)
+                                          subset_test=subset_test, dt_kwargs=dt_kwargs,
+                                          candidate_samples=candidate_samples)
 
         idx = np.argwhere(I == _i_prime).squeeze()+1  # {k in I\C: k > _i_prime}
         Y = I[idx:]  # not out of bounds, just empty
@@ -791,16 +794,21 @@ def list_closed_dscriminatory(C, N, i, t, D, I, T, results,
                                      rel_items_global=parent.rel_items_global, n_samples_global=parent.n_samples_global)
             parent.add_child(newNode_pp, 'right')
             # parent.add_child(newNode, 'right')
+            # right branch: itemsets containing C but not _i_prime. "passed" (2025 paper code): it gets the transactions /
+            # samples of the left node (support of C + {_i_prime}); otherwise those of this call (support of C)
+            _D_right, _data_right = (_D, _data_target) if candidate_samples == "passed" else (D, data_target)
             list_closed_dscriminatory(C, N.union({_i_prime}), _i_prime_prime, t,
-                        _D, I, T, results, _data_target, data_other,
+                        _D_right, I, T, results, _data_right, data_other,
                                       closure, parent=newNode_pp, direction='right',
-                                      subset_test=subset_test, dt_kwargs=dt_kwargs)
+                                      subset_test=subset_test, dt_kwargs=dt_kwargs,
+                                      candidate_samples=candidate_samples)
 
     return
 
 
 def gely_discriminatory(B, threshold, X_target, X_other, item_order, remove_copmlete_transactions=True,
-                        subset_test=False, model_callable=None, compute_dt=True, compute_rules=True, dt_kwargs=None):
+                        subset_test=False, model_callable=None, compute_dt=True, compute_rules=True, dt_kwargs=None,
+                        candidate_samples="passed"):
     '''
     :param D: Is a binary matrix;
               Columns = Items, index used as ordering
@@ -885,7 +893,8 @@ def gely_discriminatory(B, threshold, X_target, X_other, item_order, remove_copm
                 C=OrderedSet(), N=OrderedSet(), i=I[0], t=_t, D=_D, I=I, T=T,
                 results=_fcis, data_target=X_target.copy(), data_other=X_other, parent=root_node,
                 closure=closure, subset_test=subset_test, model_callable=model_callable,
-                dt_kwargs=dt_kwargs # passed the dt depth
+                dt_kwargs=dt_kwargs, # passed the dt depth
+                candidate_samples=candidate_samples
             )
     except RecursionError as e:
         if hasattr(e, 'message'):
@@ -910,7 +919,7 @@ def gely_discriminatory(B, threshold, X_target, X_other, item_order, remove_copm
                             C=OrderedSet(), N=OrderedSet(), i=I[0], t=_t, D=_D, I=I, T=T,
                             results=_fcis, data_target=X_target.copy(), data_other=X_other, parent=root_node,
                             closure=closure, subset_test=subset_test, model_callable=model_callable,
-                            dt_kwargs=dt_kwargs
+                            dt_kwargs=dt_kwargs, candidate_samples=candidate_samples
                         )
 
     # remove data from nodes for saving; put data in root_node

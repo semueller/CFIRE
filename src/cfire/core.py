@@ -29,7 +29,8 @@ class CFIRE:
 
     def __init__(self, localexplainer_fn, explanations: Optional[numpy.ndarray], inference_fn, expl_binarization_fn=None,
                  frequency_threshold=0.01, composition_strategy=_comp_greedy_cover, max_dt_depth=None, meta_data=None,
-                 random_state=None, item_order="relevance", feature_types=None, remove_redundant_rules=True):
+                 random_state=None, item_order="relevance", feature_types=None, remove_redundant_rules=True,
+                 candidate_samples="support"):
         """
         :param expl_binarization_fn: maps the explanation matrix (n_samples, n_features) to a binary matrix of relevant
             features; default: `binarise_threshold` (row-wise max-abs normalisation, values below 0.01 are not relevant).
@@ -61,7 +62,15 @@ class CFIRE:
             "first" stay the same. True (default): as the CFIRE paper (2025), whose reported rule models went through
             this step (cfire_experiments/03_eval_rules.py at tag wcxai2025). The removed rules are kept in
             `removed_redundant_rules` as (class, rule).
+        :param candidate_samples: which class samples each candidate's box and tree are fitted on.
+            "support" (default): the itemset's support, i.e. the class samples whose relevant features contain the
+            itemset (CFIRE paper 2025, Step 4). "all": all samples of the class. "passed": the samples handed down by
+            the itemset enumeration, as in the code of the 2025 paper (tag wcxai2025); "passed_fixed": as "passed",
+            with each branch of the enumeration receiving its parent's samples.
         """
+        if candidate_samples not in ("passed", "passed_fixed", "support", "all"):
+            raise ValueError(f"candidate_samples must be 'passed', 'passed_fixed', 'support' or 'all', got {candidate_samples!r}")
+        self._candidate_samples = candidate_samples
         if item_order not in ("relevance", "natural"):
             raise ValueError(f"item_order must be 'relevance' or 'natural', got {item_order!r}")
         self._item_order = item_order
@@ -178,7 +187,8 @@ class CFIRE:
                          # 'model_callable': self._inference_fn,
                          'compute_rules': True,
                          'dt_kwargs': self._dt_kwargs(),
-                         'subset_test': True # TODO: enable this?
+                         'subset_test': self._candidate_samples != "all",  # TODO: enable this?
+                         'candidate_samples': self._candidate_samples,
                          }
 
             # TODO: uses `generate_synthetic_data`?
